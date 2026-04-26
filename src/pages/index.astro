@@ -14,6 +14,12 @@ const posts = (await getCollection("blog")).sort(
   (a, b) => b.data.date.valueOf() - a.data.date.valueOf(),
 );
 
+const dateFormatter = new Intl.DateTimeFormat("en", {
+  month: "short",
+  year: "numeric",
+  timeZone: "UTC",
+});
+
 const projects: Item[] = [
   {
     name: "pRRTC",
@@ -160,11 +166,19 @@ const socials: Item[] = [
       {
         posts.map((post) => (
           <a
-            class="hover:bg-muted -mx-3 flex flex-col rounded-md px-3 py-2 no-underline"
+            class="hover:bg-muted -mx-3 grid gap-1 rounded-md px-3 py-2 no-underline sm:grid-cols-[5.5rem_1fr] sm:gap-4"
             href={`/blog/${post.id}`}
           >
-            <span>{post.data.title}</span>
-            <span class="text-muted-foreground">{post.data.description}</span>
+            <time
+              class="text-muted-foreground text-sm sm:pt-0.5"
+              datetime={post.data.date.toISOString()}
+            >
+              {dateFormatter.format(post.data.date)}
+            </time>
+            <span class="flex flex-col">
+              <span>{post.data.title}</span>
+              <span class="text-muted-foreground">{post.data.description}</span>
+            </span>
           </a>
         ))
       }
