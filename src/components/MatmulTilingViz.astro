@@ -73,7 +73,7 @@ const outerProductSlices = Array.from({ length: BK }, (_, index) => index);
 
   <svg
     class="tiling-panel blocktile-panel"
-    viewBox="0 0 525 1130"
+    viewBox="0 0 525 1010"
     role="img"
     aria-label="Blocktile and threadtile matmul visualization"
     aria-describedby="blocktile-viz-desc"
@@ -573,12 +573,6 @@ const outerProductSlices = Array.from({ length: BK }, (_, index) => index);
         stroke-width="3.5"></path>
     </g>
   </svg>
-
-  <figcaption>
-    Both visualizations use M, N, K = {MATRIX_DIM}. Blocktiles are {BM} x {BN},
-    K blocktiles are {BK} wide, and each thread computes an {TM} x {TN}
-    threadtile.
-  </figcaption>
 </figure>
 
 <script>
@@ -808,7 +802,7 @@ const outerProductSlices = Array.from({ length: BK }, (_, index) => index);
     --viz-outer: oklch(0.62 0.20 145);
     display: grid;
     gap: 1rem;
-    margin: 2rem 0;
+    margin: 2rem 0 0;
   }
 
   .tiling-panel {
