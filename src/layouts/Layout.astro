@@ -1,0 +1,29 @@
+---
+import Head from "../components/Head.astro";
+import FallbackImage from "../assets/blog-placeholder-1.jpg";
+import { SITE_DESCRIPTION, SITE_TITLE } from "../consts";
+import Header from "../components/Header.astro";
+
+interface Props {
+  title?: string;
+  description?: string;
+  image?: ImageMetadata;
+}
+
+const {
+  title = SITE_TITLE,
+  description = SITE_DESCRIPTION,
+  image = FallbackImage,
+} = Astro.props;
+---
+
+<!doctype html>
+<html lang="en">
+  <Head title={title} description={description} image={image} />
+  <body>
+    <div class="mx-auto w-full max-w-2xl px-6 py-16">
+      <Header />
+      <slot />
+    </div>
+  </body>
+</html>
