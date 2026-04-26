@@ -5,6 +5,7 @@ date: "2026-04-26"
 ---
 
 import { codePairs } from "../../lib/cuteCodePairs";
+import MatmulTilingViz from "../../components/MatmulTilingViz.astro";
 
 export function CodePair({
   pair,
@@ -53,7 +54,7 @@ The goal with each of these kernels is to do a single-precision generalized matr
 
 The result is:
 
-- C = alpha * (A @ B) + beta * C
+- C = alpha _ (A @ B) + beta _ C
 - C is shaped (M, N), alpha and beta are constants
 
 ## 2D Blocktiling
@@ -80,6 +81,8 @@ Memory access pattern
 4. Repeat steps 2-3 advancing the slices along BK dimension
 5. Repeat steps 1-4 advancing the blocktiles along K dimension
 6. Write results from rmem --> gmem
+
+<MatmulTilingViz />
 
 Now, let's implement it using CuTe! The first thing we need to do is declare the kernel. Simon's reference kernel is on the left, and the CuTe version is on the right.
 

@@ -1,0 +1,558 @@
+---
+const MATRIX_DIM = 512;
+const MATRIX_SIZE = 200;
+const BM = 64;
+const BN = 64;
+const BK = 8;
+const TM = 8;
+const TN = 8;
+const TILE_COUNT = MATRIX_DIM / BM;
+const K_TILE_COUNT = MATRIX_DIM / BK;
+const BLOCK_SIZE = MATRIX_SIZE / TILE_COUNT;
+const K_TILE_SIZE = MATRIX_SIZE / K_TILE_COUNT;
+const FEATURED_ROW = 3;
+const FEATURED_COL = 5;
+const ACTIVE_K_TILE = 42;
+const THREAD_COUNT = BM / TM;
+const THREAD_SIZE = MATRIX_SIZE / THREAD_COUNT;
+const K_ZOOM_WIDTH = 34;
+
+const blocks = Array.from({ length: TILE_COUNT * TILE_COUNT }, (_, index) => ({
+  row: Math.floor(index / TILE_COUNT),
+  col: index % TILE_COUNT,
+}));
+const kTiles = Array.from({ length: K_TILE_COUNT }, (_, index) => index);
+const threads = Array.from(
+  { length: THREAD_COUNT * THREAD_COUNT },
+  (_, index) => ({
+    row: Math.floor(index / THREAD_COUNT),
+    col: index % THREAD_COUNT,
+  }),
+);
+---
+
+<figure
+  class="matmul-tiling-viz"
+  data-block-size={BLOCK_SIZE}
+  data-k-tile-size={K_TILE_SIZE}
+  data-thread-size={THREAD_SIZE}
+  data-featured-row={FEATURED_ROW}
+  data-featured-col={FEATURED_COL}
+  data-active-k-tile={ACTIVE_K_TILE}
+>
+  <svg
+    class="tiling-panel blocktile-panel"
+    viewBox="0 0 570 560"
+    role="img"
+    aria-labelledby="blocktile-viz-title blocktile-viz-desc"
+  >
+    <title id="blocktile-viz-title">Blocktile-level matmul visualization</title>
+    <desc id="blocktile-viz-desc">
+      Hover a C blocktile to highlight the corresponding A block row and B block
+      column.
+    </desc>
+
+    <defs>
+      <pattern
+        id="block-matrix-grid"
+        width={BLOCK_SIZE}
+        height={BLOCK_SIZE}
+        patternUnits="userSpaceOnUse"
+      >
+        <path d={`M ${BLOCK_SIZE} 0 L 0 0 0 ${BLOCK_SIZE}`}></path>
+      </pattern>
+    </defs>
+
+    <g class="panel-copy" transform="translate(32 38)">
+      <text class="panel-title" x="0" y="0">Blocktile parallelism</text>
+      <text class="panel-body" x="0" y="28">
+        Hover C to highlight the matching A row and B column.
+      </text>
+      <text class="panel-body block-readout" x="0" y="54"></text>
+    </g>
+
+    <g class="matrix matrix-a block-a" transform="translate(58 310)">
+      <rect class="matrix-fill" width={MATRIX_SIZE} height={MATRIX_SIZE}></rect>
+      <rect
+        class="matrix-grid block-grid"
+        width={MATRIX_SIZE}
+        height={MATRIX_SIZE}></rect>
+      <rect class="a-row-highlight" width={MATRIX_SIZE} height={BLOCK_SIZE}
+      ></rect>
+      <g class="a-blocktile-lines">
+        {
+          kTiles.map((tile) => (
+            <line
+              x1={tile * K_TILE_SIZE}
+              y1="0"
+              x2={tile * K_TILE_SIZE}
+              y2={BLOCK_SIZE}
+            />
+          ))
+        }
+      </g>
+      <rect
+        class="a-blocktile-highlight"
+        width={K_TILE_SIZE}
+        height={BLOCK_SIZE}></rect>
+      <rect class="matrix-border" width={MATRIX_SIZE} height={MATRIX_SIZE}
+      ></rect>
+      <text class="matrix-label" x="-22" y="-14">A</text>
+      <text class="axis-label" x={MATRIX_SIZE / 2} y={MATRIX_SIZE + 30}
+        >K = {MATRIX_DIM}</text
+      >
+      <text class="axis-label vertical" x="-28" y={MATRIX_SIZE / 2}
+        >M = {MATRIX_DIM}</text
+      >
+    </g>
+
+    <g class="matrix matrix-b block-b" transform="translate(320 90)">
+      <rect class="matrix-fill" width={MATRIX_SIZE} height={MATRIX_SIZE}></rect>
+      <rect
+        class="matrix-grid block-grid"
+        width={MATRIX_SIZE}
+        height={MATRIX_SIZE}></rect>
+      <rect class="b-col-highlight" width={BLOCK_SIZE} height={MATRIX_SIZE}
+      ></rect>
+      <g class="b-blocktile-lines">
+        {
+          kTiles.map((tile) => (
+            <line
+              x1="0"
+              y1={tile * K_TILE_SIZE}
+              x2={BLOCK_SIZE}
+              y2={tile * K_TILE_SIZE}
+            />
+          ))
+        }
+      </g>
+      <rect
+        class="b-blocktile-highlight"
+        width={BLOCK_SIZE}
+        height={K_TILE_SIZE}></rect>
+      <rect class="matrix-border" width={MATRIX_SIZE} height={MATRIX_SIZE}
+      ></rect>
+      <text class="matrix-label" x={MATRIX_SIZE + 16} y="-14">B</text>
+      <text class="axis-label" x={MATRIX_SIZE / 2} y="-16"
+        >N = {MATRIX_DIM}</text
+      >
+      <text class="axis-label vertical" x="-28" y={MATRIX_SIZE / 2}
+        >K = {MATRIX_DIM}</text
+      >
+    </g>
+
+    <g class="matrix matrix-c block-c" transform="translate(320 310)">
+      <rect class="matrix-fill" width={MATRIX_SIZE} height={MATRIX_SIZE}></rect>
+      <rect
+        class="matrix-grid block-grid"
+        width={MATRIX_SIZE}
+        height={MATRIX_SIZE}></rect>
+      {
+        blocks.map((block) => (
+          <rect
+            class="c-block-hitbox"
+            data-row={block.row}
+            data-col={block.col}
+            x={block.col * BLOCK_SIZE}
+            y={block.row * BLOCK_SIZE}
+            width={BLOCK_SIZE}
+            height={BLOCK_SIZE}
+          />
+        ))
+      }
+      <rect class="c-selected-block" width={BLOCK_SIZE} height={BLOCK_SIZE}
+      ></rect>
+      <rect class="matrix-border" width={MATRIX_SIZE} height={MATRIX_SIZE}
+      ></rect>
+      <text class="matrix-label" x={MATRIX_SIZE + 16} y={MATRIX_SIZE + 30}
+        >C</text
+      >
+      <text class="axis-label" x={MATRIX_SIZE / 2} y={MATRIX_SIZE + 30}
+        >N = {MATRIX_DIM}</text
+      >
+      <text class="axis-label vertical" x="-28" y={MATRIX_SIZE / 2}
+        >M = {MATRIX_DIM}</text
+      >
+    </g>
+  </svg>
+
+  <svg
+    class="tiling-panel threadtile-panel"
+    viewBox="0 0 570 390"
+    role="img"
+    aria-labelledby="threadtile-viz-title threadtile-viz-desc"
+  >
+    <title id="threadtile-viz-title">
+      Threadtile-level matmul visualization
+    </title>
+    <desc id="threadtile-viz-desc">
+      Hover a threadtile in one C block to highlight the A and B slices used by
+      that thread.
+    </desc>
+
+    <defs>
+      <pattern
+        id="thread-matrix-grid"
+        width={THREAD_SIZE}
+        height={THREAD_SIZE}
+        patternUnits="userSpaceOnUse"
+      >
+        <path d={`M ${THREAD_SIZE} 0 L 0 0 0 ${THREAD_SIZE}`}></path>
+      </pattern>
+    </defs>
+
+    <g class="panel-copy" transform="translate(32 38)">
+      <text class="panel-title" x="0" y="0">Threadtile parallelism</text>
+      <text class="panel-body" x="0" y="28">
+        Hover a threadtile to highlight its A and B slices.
+      </text>
+      <text class="panel-body thread-readout" x="0" y="54"></text>
+    </g>
+
+    <g class="zoom-a" transform="translate(50 120)">
+      <text class="matrix-label" x="-20" y="-14">A blocktile</text>
+      <rect class="matrix-fill" width={K_ZOOM_WIDTH} height={MATRIX_SIZE}
+      ></rect>
+      <rect class="matrix-border" width={K_ZOOM_WIDTH} height={MATRIX_SIZE}
+      ></rect>
+      {
+        Array.from({ length: THREAD_COUNT + 1 }, (_, row) => (
+          <line
+            class="thread-grid-line"
+            x1="0"
+            y1={row * THREAD_SIZE}
+            x2={K_ZOOM_WIDTH}
+            y2={row * THREAD_SIZE}
+          />
+        ))
+      }
+      <rect class="a-thread-slice" width={K_ZOOM_WIDTH} height={THREAD_SIZE}
+      ></rect>
+      <text class="axis-label" x={K_ZOOM_WIDTH / 2} y={MATRIX_SIZE + 28}
+        >BK = {BK}</text
+      >
+      <text class="axis-label vertical" x="-28" y={MATRIX_SIZE / 2}
+        >BM = {BM}</text
+      >
+    </g>
+
+    <g class="zoom-b" transform="translate(145 70)">
+      <text class="matrix-label" x="0" y="-14">B blocktile</text>
+      <rect class="matrix-fill" width={MATRIX_SIZE} height={K_ZOOM_WIDTH}
+      ></rect>
+      <rect class="matrix-border" width={MATRIX_SIZE} height={K_ZOOM_WIDTH}
+      ></rect>
+      {
+        Array.from({ length: THREAD_COUNT + 1 }, (_, col) => (
+          <line
+            class="thread-grid-line"
+            x1={col * THREAD_SIZE}
+            y1="0"
+            x2={col * THREAD_SIZE}
+            y2={K_ZOOM_WIDTH}
+          />
+        ))
+      }
+      <rect class="b-thread-slice" width={THREAD_SIZE} height={K_ZOOM_WIDTH}
+      ></rect>
+      <text class="axis-label" x={MATRIX_SIZE / 2} y="-18">BN = {BN}</text>
+      <text class="axis-label vertical" x="-28" y={K_ZOOM_WIDTH / 2}
+        >BK = {BK}</text
+      >
+    </g>
+
+    <g class="thread-c" transform="translate(145 120)">
+      <text class="matrix-label" x={MATRIX_SIZE + 16} y={MATRIX_SIZE + 30}
+        >C blocktile</text
+      >
+      <rect class="matrix-fill" width={MATRIX_SIZE} height={MATRIX_SIZE}></rect>
+      <rect
+        class="matrix-grid thread-grid"
+        width={MATRIX_SIZE}
+        height={MATRIX_SIZE}></rect>
+      {
+        threads.map((thread) => (
+          <rect
+            class="thread-hitbox"
+            data-thread-row={thread.row}
+            data-thread-col={thread.col}
+            x={thread.col * THREAD_SIZE}
+            y={thread.row * THREAD_SIZE}
+            width={THREAD_SIZE}
+            height={THREAD_SIZE}
+          />
+        ))
+      }
+      <rect class="thread-selected" width={THREAD_SIZE} height={THREAD_SIZE}
+      ></rect>
+      <rect class="matrix-border" width={MATRIX_SIZE} height={MATRIX_SIZE}
+      ></rect>
+      <text class="axis-label" x={MATRIX_SIZE / 2} y={MATRIX_SIZE + 30}
+        >BN = {BN}</text
+      >
+      <text class="axis-label vertical" x="-28" y={MATRIX_SIZE / 2}
+        >BM = {BM}</text
+      >
+    </g>
+
+    <g class="thread-context" transform="translate(385 145)">
+      <text class="panel-title" x="0" y="0">One thread computes</text>
+      <text class="panel-body" x="0" y="30">C threadtile: {TM} x {TN}</text>
+      <text class="panel-body" x="0" y="54">A slice: {TM} x {BK}</text>
+      <text class="panel-body" x="0" y="78">B slice: {BK} x {TN}</text>
+      <text class="panel-body" x="0" y="116">Featured block:</text>
+      <text class="panel-body" x="0" y="140">
+        row {FEATURED_ROW}, col {FEATURED_COL}
+      </text>
+      <text class="panel-body" x="0" y="164">K tile {ACTIVE_K_TILE}</text>
+    </g>
+  </svg>
+
+  <figcaption>
+    Both visualizations use M, N, K = {MATRIX_DIM}. Blocktiles are {BM} x {BN},
+    K blocktiles are {BK} wide, and each thread computes an {TM} x {TN}
+    threadtile.
+  </figcaption>
+</figure>
+
+<script>
+  const figures = document.querySelectorAll(".matmul-tiling-viz");
+
+  figures.forEach((figure) => {
+    const blockSize = Number(figure.dataset.blockSize);
+    const kTileSize = Number(figure.dataset.kTileSize);
+    const threadSize = Number(figure.dataset.threadSize);
+    const featuredRow = Number(figure.dataset.featuredRow);
+    const featuredCol = Number(figure.dataset.featuredCol);
+    const activeKTile = Number(figure.dataset.activeKTile);
+
+    const selectedBlock = figure.querySelector(".c-selected-block");
+    const aRow = figure.querySelector(".a-row-highlight");
+    const bCol = figure.querySelector(".b-col-highlight");
+    const aLines = figure.querySelector(".a-blocktile-lines");
+    const bLines = figure.querySelector(".b-blocktile-lines");
+    const aBlocktile = figure.querySelector(".a-blocktile-highlight");
+    const bBlocktile = figure.querySelector(".b-blocktile-highlight");
+    const blockReadout = figure.querySelector(".block-readout");
+    const threadReadout = figure.querySelector(".thread-readout");
+    const threadSelected = figure.querySelector(".thread-selected");
+    const aThread = figure.querySelector(".a-thread-slice");
+    const bThread = figure.querySelector(".b-thread-slice");
+
+    function updateBlock(row, col) {
+      selectedBlock?.setAttribute("x", String(col * blockSize));
+      selectedBlock?.setAttribute("y", String(row * blockSize));
+      aRow?.setAttribute("y", String(row * blockSize));
+      bCol?.setAttribute("x", String(col * blockSize));
+      aLines?.setAttribute("transform", `translate(0 ${row * blockSize})`);
+      bLines?.setAttribute("transform", `translate(${col * blockSize} 0)`);
+      aBlocktile?.setAttribute("x", String(activeKTile * kTileSize));
+      aBlocktile?.setAttribute("y", String(row * blockSize));
+      bBlocktile?.setAttribute("x", String(col * blockSize));
+      bBlocktile?.setAttribute("y", String(activeKTile * kTileSize));
+
+      if (blockReadout) {
+        blockReadout.textContent = `Block (${row}, ${col}): A row ${row}, B col ${col}, K tile ${activeKTile}.`;
+      }
+    }
+
+    function updateThread(row, col) {
+      threadSelected?.setAttribute("x", String(col * threadSize));
+      threadSelected?.setAttribute("y", String(row * threadSize));
+      aThread?.setAttribute("y", String(row * threadSize));
+      bThread?.setAttribute("x", String(col * threadSize));
+
+      if (threadReadout) {
+        threadReadout.textContent = `Threadtile (${row}, ${col}): A row-slice ${row}, B col-slice ${col}.`;
+      }
+    }
+
+    figure.querySelectorAll("[data-row][data-col]").forEach((block) => {
+      block.addEventListener("pointerenter", () => {
+        updateBlock(Number(block.dataset.row), Number(block.dataset.col));
+      });
+      block.addEventListener("focus", () => {
+        updateBlock(Number(block.dataset.row), Number(block.dataset.col));
+      });
+    });
+
+    figure
+      .querySelectorAll("[data-thread-row][data-thread-col]")
+      .forEach((thread) => {
+        thread.addEventListener("pointerenter", () => {
+          updateThread(
+            Number(thread.dataset.threadRow),
+            Number(thread.dataset.threadCol),
+          );
+        });
+        thread.addEventListener("focus", () => {
+          updateThread(
+            Number(thread.dataset.threadRow),
+            Number(thread.dataset.threadCol),
+          );
+        });
+      });
+
+    updateBlock(featuredRow, featuredCol);
+    updateThread(3, 4);
+  });
+</script>
+
+<style>
+  .matmul-tiling-viz {
+    --viz-ink: color-mix(in oklab, var(--foreground) 80%, transparent);
+    --viz-grid: color-mix(in oklab, var(--foreground) 20%, transparent);
+    --viz-fill: color-mix(in oklab, var(--muted) 72%, transparent);
+    --viz-block: oklch(0.72 0.18 65);
+    --viz-thread: oklch(0.68 0.19 230);
+    --viz-thread-soft: oklch(0.68 0.19 230 / 0.28);
+    display: grid;
+    gap: 1rem;
+    margin: 2rem 0;
+  }
+
+  .tiling-panel {
+    display: block;
+    width: 100%;
+    height: auto;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xl);
+    background:
+      radial-gradient(
+        circle at 80% 14%,
+        color-mix(in oklab, var(--viz-block) 12%, transparent),
+        transparent 34%
+      ),
+      linear-gradient(
+        135deg,
+        color-mix(in oklab, var(--muted) 56%, transparent),
+        transparent 58%
+      );
+  }
+
+  .matmul-tiling-viz figcaption {
+    color: var(--muted-foreground);
+    margin: 0;
+    font-size: 0.875rem;
+    text-align: center;
+  }
+
+  .matrix-fill {
+    fill: var(--viz-fill);
+  }
+
+  .block-grid {
+    fill: url("#block-matrix-grid");
+  }
+
+  .thread-grid {
+    fill: url("#thread-matrix-grid");
+  }
+
+  #block-matrix-grid path,
+  #thread-matrix-grid path {
+    fill: none;
+    stroke: var(--viz-grid);
+    stroke-width: 0.7;
+  }
+
+  .matrix-border {
+    fill: none;
+    stroke: var(--viz-ink);
+    stroke-width: 2;
+  }
+
+  .matrix-label,
+  .panel-title {
+    fill: var(--foreground);
+    font-family: var(--font-mono);
+    font-size: 14px;
+    font-weight: 700;
+  }
+
+  .axis-label,
+  .panel-body {
+    fill: var(--muted-foreground);
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+  }
+
+  .axis-label {
+    text-anchor: middle;
+  }
+
+  .vertical {
+    transform-box: fill-box;
+    transform-origin: center;
+    rotate: -90deg;
+  }
+
+  .c-block-hitbox,
+  .thread-hitbox {
+    fill: transparent;
+    cursor: crosshair;
+  }
+
+  .c-block-hitbox:hover {
+    fill: oklch(0.72 0.18 65 / 0.18);
+  }
+
+  .thread-hitbox:hover {
+    fill: oklch(0.68 0.19 230 / 0.14);
+  }
+
+  .c-selected-block,
+  .a-row-highlight,
+  .b-col-highlight {
+    fill: oklch(0.72 0.18 65 / 0.28);
+    stroke: var(--viz-block);
+    stroke-width: 2;
+    pointer-events: none;
+  }
+
+  .a-blocktile-lines line,
+  .b-blocktile-lines line {
+    stroke: color-mix(in oklab, var(--viz-block) 72%, transparent);
+    stroke-width: 0.45;
+    pointer-events: none;
+  }
+
+  .a-blocktile-highlight,
+  .b-blocktile-highlight {
+    fill: oklch(0.72 0.18 65 / 0.72);
+    stroke: var(--viz-block);
+    stroke-width: 1.5;
+    pointer-events: none;
+  }
+
+  .a-thread-slice,
+  .b-thread-slice,
+  .thread-selected {
+    fill: var(--viz-thread-soft);
+    stroke: var(--viz-thread);
+    stroke-width: 2.4;
+    pointer-events: none;
+  }
+
+  .thread-grid-line {
+    stroke: var(--viz-grid);
+    stroke-width: 1.1;
+    pointer-events: none;
+  }
+
+  .block-readout,
+  .thread-readout {
+    fill: var(--foreground);
+  }
+
+  @media (max-width: 960px) {
+    .matmul-tiling-viz {
+      margin-inline: 0;
+      overflow-x: auto;
+    }
+
+    .tiling-panel {
+      min-width: 560px;
+    }
+  }
+</style>
