@@ -134,24 +134,24 @@
     @apply bg-yellow-200;
   }
   .code-pair {
-    @apply my-6 grid gap-4 lg:-mx-24 lg:grid-cols-2 xl:-mx-40;
+    @apply my-6 mb-10 grid lg:-mx-24 xl:-mx-72 2xl:-mx-96 lg:grid-cols-2 divide-x divide-border;
   }
   .code-pair-panel {
-    @apply my-0 min-w-0;
+    @apply my-0 min-w-0 px-4 first:pl-0 last:pr-0;
 
     > figcaption {
       @apply text-muted-foreground mb-2 font-mono text-xs font-medium tracking-wide uppercase;
     }
 
     > pre {
-      @apply my-0 h-full max-h-[720px] overflow-auto overscroll-none rounded-lg border p-4 font-mono text-sm;
+      @apply my-0 p-0 font-mono text-xs;
     }
 
     > .code-pair-highlighted {
-      @apply my-0 h-full;
+      @apply my-0;
 
       > pre {
-        @apply my-0 h-full max-h-[720px] overflow-auto overscroll-none rounded-lg border p-4 font-mono text-xs! leading-relaxed;
+        @apply my-0 p-0 font-mono text-xs! leading-relaxed bg-transparent! shadow-none! border-none! rounded-none! overflow-visible! max-h-none!;
       }
     }
   }

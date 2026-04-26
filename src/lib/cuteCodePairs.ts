@@ -1,11 +1,13 @@
 export const codePairs = {
   signature: {
-    left: String.raw`template <const int BM, const int BN, const int BK, const int TM, const int TN>
+    left: String.raw`template <const int BM, const int BN, const int BK,
+          const int TM, const int TN>
 __global__ void __launch_bounds__((BM * BN) / (TM * TN), 1)
-    sgemm2DBlocktiling(int M, int N, int K, float alpha, const float *A,
-                       const float *B, float beta, float *C) {`,
+    sgemm2DBlocktiling(int M, int N, int K, float alpha,
+                       const float *A, const float *B,
+                       float beta, float *C) {`,
     right: String.raw`template <
-    const int BM, const int BN, const int BK, const int TM, const int TN
+    const int BM, const int BN, const int BK, const int TM, const int TN,
     class ATiler, class BTiler, class CTiler,
     class AStride, class ASmemLayout, class AThreadLayout,
     class BStride, class BSmemLayout, class BThreadLayout,
@@ -17,7 +19,8 @@ __global__ void sgemm_2d_block_tiling_cute(
     AStride A_strides, BStride B_strides, CStride C_strides,
     ATiler A_tiler, BTiler B_tiler, CTiler C_tiler,
     ASmemLayout A_shared_layout, BSmemLayout B_shared_layout,
-    AThreadLayout A_thread_layout, BThreadLayout B_thread_layout, CThreadLayout C_thread_layout
+    AThreadLayout A_thread_layout, BThreadLayout B_thread_layout,
+    CThreadLayout C_thread_layout
 ) {`,
   },
   preamble: {
@@ -48,9 +51,12 @@ Tensor sA = make_tensor(make_smem_ptr(A_smem), A_shared_layout);
 Tensor sB = make_tensor(make_smem_ptr(B_smem), B_shared_layout);
 
 // global tiles
-Tensor gA = local_tile(mA, A_tiler, make_coord(blockIdx.y, _)); // (BM, BK, k)
-Tensor gB = local_tile(mB, B_tiler, make_coord(_, blockIdx.x)); // (BK, BN, k)
-Tensor gC = local_tile(mC, C_tiler, make_coord(blockIdx.y, blockIdx.x)); // (BM, BN)`,
+// (BM, BK, k)
+Tensor gA = local_tile(mA, A_tiler, make_coord(blockIdx.y, _));
+// (BK, BN, k)
+Tensor gB = local_tile(mB, B_tiler, make_coord(_, blockIdx.x));
+// (BM, BN)
+Tensor gC = local_tile(mC, C_tiler, make_coord(blockIdx.y, blockIdx.x));`,
   },
   threadWork: {
     left: String.raw`// calculating the indices that this thread will load into SMEM
@@ -84,11 +90,15 @@ auto thread_row_C = threadIdx.x / (BN / TN);
 auto thread_col_C = threadIdx.x % (BN / TN);
 auto A_col_shape = make_shape(TM, 1);
 auto B_row_shape = make_shape(1, TN);
-Tensor sA_to_r = local_tile(sA, A_col_shape, make_coord(thread_row_C, _)); // (TM, 1, BK)
-Tensor sB_to_r = local_tile(sB, B_row_shape, make_coord(_, thread_col_C)); // (1, TN, BK)
+Tensor sA_to_r = local_tile(
+    sA, A_col_shape, make_coord(thread_row_C, _)); // (TM, 1, BK)
+Tensor sB_to_r = local_tile(
+    sB, B_row_shape, make_coord(_, thread_col_C)); // (1, TN, BK)
 
 // part of gC each thread writes results
-Tensor gC_to_w = local_tile(gC, shape(C_thread_layout), make_coord(thread_row_C, thread_col_C)); // (TM, TN)
+Tensor gC_to_w = local_tile(
+    gC, shape(C_thread_layout),
+    make_coord(thread_row_C, thread_col_C)); // (TM, TN)
 
 // rmem
 Tensor thread_results = make_tensor_like(gC_to_w);
@@ -189,7 +199,8 @@ CUTE_UNROLL
 for (int i = 0; i < shape<0>(thread_results); i++) {
     CUTE_UNROLL
     for (int j = 0; j < shape<1>(thread_results); j++) {
-        gC_to_w(i, j) = alpha * thread_results(i, j) + beta * gC_to_w(i, j);
+        gC_to_w(i, j) = alpha * thread_results(i, j)
+                      + beta * gC_to_w(i, j);
     }
 }`,
   },
