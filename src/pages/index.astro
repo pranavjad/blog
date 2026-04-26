@@ -14,16 +14,6 @@ const posts = (await getCollection("blog")).sort(
   (a, b) => b.data.date.valueOf() - a.data.date.valueOf(),
 );
 
-const externalPosts: Item[] = [
-  {
-    name: "Finetuning LLMs for ReAct",
-    description:
-      "Unleashing finetuning to improve multi-hop question-answering ability in LLMs.",
-    url: "https://medium.com/towards-artificial-intelligence/finetuning-llms-for-react-9ab291d84ddc",
-    isExternal: true,
-  },
-];
-
 const projects: Item[] = [
   {
     name: "pRRTC",
@@ -175,19 +165,6 @@ const socials: Item[] = [
           >
             <span>{post.data.title}</span>
             <span class="text-muted-foreground">{post.data.description}</span>
-          </a>
-        ))
-      }
-      {
-        externalPosts.map((post) => (
-          <a
-            class="hover:bg-muted -mx-3 flex flex-col rounded-md px-3 py-2 no-underline"
-            href={post.url}
-            target={post.isExternal ? "_blank" : undefined}
-            rel={post.isExternal ? "noopener noreferrer" : undefined}
-          >
-            <span>{post.name}</span>
-            <span class="text-muted-foreground">{post.description}</span>
           </a>
         ))
       }
