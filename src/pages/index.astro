@@ -16,10 +16,24 @@ const posts = (await getCollection("blog")).sort(
 
 const projects: Item[] = [
   {
-    name: "Miniblog",
-    description: "A minimal Astro blog template.",
-    url: "/",
-    isExternal: false,
+    name: "pRRTC",
+    description:
+      "A GPU accelerated motion planning library for robotic manipulators. Published at ICRA 2026.",
+    url: "https://github.com/CoMMALab/pRRTC",
+    isExternal: true,
+  },
+  {
+    name: "mlx-gpt2",
+    description:
+      "A from-scratch implementation of GPT-2 optimized for Apple silicon.",
+    url: "https://github.com/pranavjad/mlx-gpt2",
+    isExternal: true,
+  },
+  {
+    name: "music transformer",
+    description: "Training a transformer to generate MIDI piano compositions.",
+    url: "https://github.com/pranavjad/music-transformer",
+    isExternal: true,
   },
 ];
 
