@@ -133,6 +133,20 @@
   mark {
     @apply bg-yellow-200;
   }
+  .code-pair {
+    @apply my-6 grid gap-4 lg:-mx-24 lg:grid-cols-2 xl:-mx-40;
+  }
+  .code-pair-panel {
+    @apply my-0 min-w-0;
+
+    > figcaption {
+      @apply text-muted-foreground mb-2 font-mono text-xs font-medium tracking-wide uppercase;
+    }
+
+    > pre {
+      @apply my-0 h-full max-h-[720px] overflow-auto overscroll-none rounded-lg border p-4 font-mono text-sm;
+    }
+  }
   section.footnotes {
     @apply before:bg-border text-sm before:mt-24 before:mb-4 before:block before:h-px;
 
