@@ -1,0 +1,28 @@
+---
+import { codeToHtml } from "shiki";
+
+interface Props {
+  pair: { left: string; right: string };
+  leftTitle?: string;
+  rightTitle?: string;
+  lang?: string;
+}
+
+const { pair, leftTitle = "CUDA reference", rightTitle = "CuTe", lang = "cpp" } = Astro.props;
+
+const [leftHtml, rightHtml] = await Promise.all([
+  codeToHtml(pair.left.trim(), { lang, theme: "catppuccin-latte" }),
+  codeToHtml(pair.right.trim(), { lang, theme: "catppuccin-latte" }),
+]);
+---
+
+<div class="code-pair">
+  <figure class="code-pair-panel">
+    <figcaption>{leftTitle}</figcaption>
+    <div class="code-pair-highlighted" set:html={leftHtml} />
+  </figure>
+  <figure class="code-pair-panel">
+    <figcaption>{rightTitle}</figcaption>
+    <div class="code-pair-highlighted" set:html={rightHtml} />
+  </figure>
+</div>

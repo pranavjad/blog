@@ -6,29 +6,7 @@ date: "2026-04-26"
 
 import { codePairs } from "../../lib/cuteCodePairs";
 import MatmulTilingViz from "../../components/MatmulTilingViz.astro";
-
-export function CodePair({
-  pair,
-  leftTitle = "CUDA reference",
-  rightTitle = "CuTe",
-}) {
-  return (
-    <div className="code-pair">
-      <figure className="code-pair-panel">
-        <figcaption>{leftTitle}</figcaption>
-        <pre>
-          <code>{pair.left.trim()}</code>
-        </pre>
-      </figure>
-      <figure className="code-pair-panel">
-        <figcaption>{rightTitle}</figcaption>
-        <pre>
-          <code>{pair.right.trim()}</code>
-        </pre>
-      </figure>
-    </div>
-  );
-}
+import CodePair from "../../components/CodePair.astro";
 
 # Optimizing a MatMul with CuTe (Part 1)
 
