@@ -18,6 +18,14 @@ const THREAD_SIZE = MATRIX_SIZE / THREAD_COUNT;
 const K_ZOOM_WIDTH = 34;
 const OUTER_PRODUCT_K_INDEX = 3;
 const OUTER_PRODUCT_K_SIZE = K_ZOOM_WIDTH / BK;
+const OUTER_TILE_SIZE = 80;
+const OUTER_SLICE_SIZE = 20;
+const THREAD_LAYER_X = 224;
+const THREAD_LAYER_Y = 520;
+const THREAD_LAYER_SCALE = 0.85;
+const OUTER_LAYER_X = 401;
+const OUTER_LAYER_Y = 815;
+const OUTER_LAYER_SCALE = 0.75;
 
 const blocks = Array.from({ length: TILE_COUNT * TILE_COUNT }, (_, index) => ({
   row: Math.floor(index / TILE_COUNT),
@@ -40,6 +48,12 @@ const outerProductSlices = Array.from({ length: BK }, (_, index) => index);
   data-k-tile-size={K_TILE_SIZE}
   data-k-zoom-width={K_ZOOM_WIDTH}
   data-thread-size={THREAD_SIZE}
+  data-thread-layer-x={THREAD_LAYER_X}
+  data-thread-layer-y={THREAD_LAYER_Y}
+  data-thread-layer-scale={THREAD_LAYER_SCALE}
+  data-outer-layer-x={OUTER_LAYER_X}
+  data-outer-layer-y={OUTER_LAYER_Y}
+  data-outer-layer-scale={OUTER_LAYER_SCALE}
   data-featured-row={FEATURED_ROW}
   data-featured-col={FEATURED_COL}
   data-active-k-tile={ACTIVE_K_TILE}
@@ -52,7 +66,7 @@ const outerProductSlices = Array.from({ length: BK }, (_, index) => index);
 
   <svg
     class="tiling-panel blocktile-panel"
-    viewBox="0 0 525 850"
+    viewBox="0 0 525 1130"
     role="img"
     aria-label="Blocktile and threadtile matmul visualization"
     aria-describedby="blocktile-viz-desc"
@@ -89,6 +103,16 @@ const outerProductSlices = Array.from({ length: BK }, (_, index) => index);
         orient="auto"
       >
         <path d="M 0 0 L 4 2 L 0 4 Z" fill="rgb(234 136 24)"></path>
+      </marker>
+      <marker
+        id="thread-arrowhead"
+        markerWidth="4"
+        markerHeight="4"
+        refX="3.3"
+        refY="2"
+        orient="auto"
+      >
+        <path d="M 0 0 L 4 2 L 0 4 Z" fill="rgb(2 132 199)"></path>
       </marker>
     </defs>
 
@@ -188,7 +212,10 @@ const outerProductSlices = Array.from({ length: BK }, (_, index) => index);
       <text class="matrix-label" x="7" y="18">C</text>
     </g>
 
-    <g class="threadtile-diagram" transform="translate(80 520)">
+    <g
+      class="threadtile-diagram"
+      transform={`translate(${THREAD_LAYER_X} ${THREAD_LAYER_Y}) scale(${THREAD_LAYER_SCALE})`}
+    >
       <g class="zoom-a" transform="translate(60 72)">
         <rect class="matrix-fill" width={K_ZOOM_WIDTH} height={MATRIX_SIZE}
         ></rect>
@@ -222,7 +249,6 @@ const outerProductSlices = Array.from({ length: BK }, (_, index) => index);
             ))
           }
         </g>
-        <text class="matrix-label small-matrix-label" x="6" y="18">A</text>
         <text class="axis-label" x={K_ZOOM_WIDTH / 2} y={MATRIX_SIZE + 28}
           >BK = {BK}</text
         >
@@ -264,7 +290,6 @@ const outerProductSlices = Array.from({ length: BK }, (_, index) => index);
             ))
           }
         </g>
-        <text class="matrix-label small-matrix-label" x="7" y="18">B</text>
         <text class="axis-label" x={MATRIX_SIZE / 2} y="-18">BN = {BN}</text>
         <text
           class="axis-label vertical-reverse"
@@ -297,14 +322,110 @@ const outerProductSlices = Array.from({ length: BK }, (_, index) => index);
         ></rect>
         <rect class="matrix-border" width={MATRIX_SIZE} height={MATRIX_SIZE}
         ></rect>
-        <text class="matrix-label" x="7" y="18">C</text>
+      </g>
+    </g>
+
+    <g
+      class="outer-product-diagram"
+      transform={`translate(${OUTER_LAYER_X} ${OUTER_LAYER_Y}) scale(${OUTER_LAYER_SCALE})`}
+    >
+      <g class="outer-a" transform="translate(0 44)">
+        <rect
+          class="matrix-fill"
+          width={OUTER_SLICE_SIZE}
+          height={OUTER_TILE_SIZE}></rect>
+        {
+          Array.from({ length: TM + 1 }, (_, row) => (
+            <line
+              class="outer-grid-line"
+              x1="0"
+              y1={(row * OUTER_TILE_SIZE) / TM}
+              x2={OUTER_SLICE_SIZE}
+              y2={(row * OUTER_TILE_SIZE) / TM}
+            />
+          ))
+        }
+        <rect
+          class="matrix-border"
+          width={OUTER_SLICE_SIZE}
+          height={OUTER_TILE_SIZE}></rect>
+        <text class="axis-label vertical" x="-24" y={OUTER_TILE_SIZE / 2}
+          >TM = {TM}</text
+        >
+        <text
+          class="axis-label"
+          x={OUTER_SLICE_SIZE / 2}
+          y={OUTER_TILE_SIZE + 22}>1</text
+        >
+      </g>
+
+      <g class="outer-b" transform="translate(44 0)">
+        <rect
+          class="matrix-fill"
+          width={OUTER_TILE_SIZE}
+          height={OUTER_SLICE_SIZE}></rect>
+        {
+          Array.from({ length: TN + 1 }, (_, col) => (
+            <line
+              class="outer-grid-line"
+              x1={(col * OUTER_TILE_SIZE) / TN}
+              y1="0"
+              x2={(col * OUTER_TILE_SIZE) / TN}
+              y2={OUTER_SLICE_SIZE}
+            />
+          ))
+        }
+        <rect
+          class="matrix-border"
+          width={OUTER_TILE_SIZE}
+          height={OUTER_SLICE_SIZE}></rect>
+        <text class="axis-label" x={OUTER_TILE_SIZE / 2} y="-12">TN = {TN}</text
+        >
+        <text
+          class="axis-label"
+          x={OUTER_TILE_SIZE + 18}
+          y={OUTER_SLICE_SIZE / 2}>1</text
+        >
+      </g>
+
+      <g class="outer-c" transform="translate(44 44)">
+        <rect
+          class="matrix-fill"
+          width={OUTER_TILE_SIZE}
+          height={OUTER_TILE_SIZE}></rect>
+        {
+          Array.from({ length: TM + 1 }, (_, row) => (
+            <line
+              class="outer-grid-line"
+              x1="0"
+              y1={(row * OUTER_TILE_SIZE) / TM}
+              x2={OUTER_TILE_SIZE}
+              y2={(row * OUTER_TILE_SIZE) / TM}
+            />
+          ))
+        }
+        {
+          Array.from({ length: TN + 1 }, (_, col) => (
+            <line
+              class="outer-grid-line"
+              x1={(col * OUTER_TILE_SIZE) / TN}
+              y1="0"
+              x2={(col * OUTER_TILE_SIZE) / TN}
+              y2={OUTER_TILE_SIZE}
+            />
+          ))
+        }
+        <rect
+          class="matrix-border"
+          width={OUTER_TILE_SIZE}
+          height={OUTER_TILE_SIZE}></rect>
       </g>
     </g>
 
     <g class="tile-arrows">
       <path
         class="tile-arrow a-tile-arrow"
-        d="M 200.8125 337.5 L 140 592"
+        d="M 200.8125 337.5 L 275 581.2"
         fill="none"
         marker-end="url(#tile-arrowhead)"
         opacity="0.85"
@@ -314,7 +435,7 @@ const outerProductSlices = Array.from({ length: BK }, (_, index) => index);
         stroke-width="4"></path>
       <path
         class="tile-arrow b-tile-arrow"
-        d="M 431.5 156.8125 L 198 534"
+        d="M 431.5 156.8125 L 324.3 531.9"
         fill="none"
         marker-end="url(#tile-arrowhead)"
         opacity="0.85"
@@ -324,7 +445,7 @@ const outerProductSlices = Array.from({ length: BK }, (_, index) => index);
         stroke-width="4"></path>
       <path
         class="tile-arrow c-tile-arrow"
-        d="M 431.5 337.5 L 198 592"
+        d="M 431.5 337.5 L 324.3 581.2"
         fill="none"
         marker-end="url(#tile-arrowhead)"
         opacity="0.85"
@@ -332,6 +453,39 @@ const outerProductSlices = Array.from({ length: BK }, (_, index) => index);
         stroke-linecap="round"
         stroke-linejoin="round"
         stroke-width="4"></path>
+    </g>
+
+    <g class="thread-arrows">
+      <path
+        class="thread-arrow a-outer-arrow"
+        d="M 287.64375 655.575 L 401 848"
+        fill="none"
+        marker-end="url(#thread-arrowhead)"
+        opacity="0.85"
+        stroke="rgb(2 132 199)"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        stroke-width="3.5"></path>
+      <path
+        class="thread-arrow b-outer-arrow"
+        d="M 419.925 544.54375 L 434 815"
+        fill="none"
+        marker-end="url(#thread-arrowhead)"
+        opacity="0.85"
+        stroke="rgb(2 132 199)"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        stroke-width="3.5"></path>
+      <path
+        class="thread-arrow c-outer-arrow"
+        d="M 419.925 655.575 L 434 848"
+        fill="none"
+        marker-end="url(#thread-arrowhead)"
+        opacity="0.85"
+        stroke="rgb(2 132 199)"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        stroke-width="3.5"></path>
     </g>
   </svg>
 
@@ -349,6 +503,12 @@ const outerProductSlices = Array.from({ length: BK }, (_, index) => index);
     const blockSize = Number(figure.dataset.blockSize);
     const kTileSize = Number(figure.dataset.kTileSize);
     const threadSize = Number(figure.dataset.threadSize);
+    const threadLayerX = Number(figure.dataset.threadLayerX);
+    const threadLayerY = Number(figure.dataset.threadLayerY);
+    const threadLayerScale = Number(figure.dataset.threadLayerScale);
+    const outerLayerX = Number(figure.dataset.outerLayerX);
+    const outerLayerY = Number(figure.dataset.outerLayerY);
+    const outerLayerScale = Number(figure.dataset.outerLayerScale);
     const featuredRow = Number(figure.dataset.featuredRow);
     const featuredCol = Number(figure.dataset.featuredCol);
     const activeKTile = Number(figure.dataset.activeKTile);
@@ -370,6 +530,9 @@ const outerProductSlices = Array.from({ length: BK }, (_, index) => index);
     const bThread = figure.querySelector(".b-thread-slice");
     const aOuterProductSlices = figure.querySelector(".a-outer-product-slices");
     const bOuterProductSlices = figure.querySelector(".b-outer-product-slices");
+    const aOuterArrow = figure.querySelector(".a-outer-arrow");
+    const bOuterArrow = figure.querySelector(".b-outer-arrow");
+    const cOuterArrow = figure.querySelector(".c-outer-arrow");
 
     function updateBlock(row, col) {
       selectedBlock?.setAttribute("x", String(col * blockSize));
@@ -387,8 +550,8 @@ const outerProductSlices = Array.from({ length: BK }, (_, index) => index);
         makeArrowPath(
           68 + activeKTile * kTileSize + kTileSize / 2,
           250 + row * blockSize + blockSize / 2,
-          80 + 60,
-          520 + 72,
+          scaledThreadX(60),
+          scaledThreadY(72),
         ),
       );
       bTileArrow?.setAttribute(
@@ -396,8 +559,8 @@ const outerProductSlices = Array.from({ length: BK }, (_, index) => index);
         makeArrowPath(
           294 + col * blockSize + blockSize / 2,
           24 + activeKTile * kTileSize + kTileSize / 2,
-          80 + 118,
-          520 + 14,
+          scaledThreadX(118),
+          scaledThreadY(14),
         ),
       );
       cTileArrow?.setAttribute(
@@ -405,8 +568,8 @@ const outerProductSlices = Array.from({ length: BK }, (_, index) => index);
         makeArrowPath(
           294 + col * blockSize + blockSize / 2,
           250 + row * blockSize + blockSize / 2,
-          80 + 118,
-          520 + 72,
+          scaledThreadX(118),
+          scaledThreadY(72),
         ),
       );
 
@@ -428,6 +591,33 @@ const outerProductSlices = Array.from({ length: BK }, (_, index) => index);
         "transform",
         `translate(${col * threadSize} 0)`,
       );
+      aOuterArrow?.setAttribute(
+        "d",
+        makeArrowPath(
+          scaledThreadX(60 + 3 * (34 / 8) + 34 / 16),
+          scaledThreadY(72 + row * threadSize + threadSize / 2),
+          scaledOuterX(0),
+          scaledOuterY(44),
+        ),
+      );
+      bOuterArrow?.setAttribute(
+        "d",
+        makeArrowPath(
+          scaledThreadX(118 + col * threadSize + threadSize / 2),
+          scaledThreadY(14 + 3 * (34 / 8) + 34 / 16),
+          scaledOuterX(44),
+          scaledOuterY(0),
+        ),
+      );
+      cOuterArrow?.setAttribute(
+        "d",
+        makeArrowPath(
+          scaledThreadX(118 + col * threadSize + threadSize / 2),
+          scaledThreadY(72 + row * threadSize + threadSize / 2),
+          scaledOuterX(44),
+          scaledOuterY(44),
+        ),
+      );
 
       if (threadReadout) {
         threadReadout.textContent = `Threadtile (${row}, ${col}): A row-slice ${row}, B col-slice ${col}.`;
@@ -436,6 +626,22 @@ const outerProductSlices = Array.from({ length: BK }, (_, index) => index);
 
     function makeArrowPath(startX, startY, endX, endY) {
       return `M ${startX} ${startY} L ${endX} ${endY}`;
+    }
+
+    function scaledThreadX(x) {
+      return threadLayerX + threadLayerScale * x;
+    }
+
+    function scaledThreadY(y) {
+      return threadLayerY + threadLayerScale * y;
+    }
+
+    function scaledOuterX(x) {
+      return outerLayerX + outerLayerScale * x;
+    }
+
+    function scaledOuterY(y) {
+      return outerLayerY + outerLayerScale * y;
     }
 
     figure.querySelectorAll("[data-row][data-col]").forEach((block) => {
@@ -643,7 +849,14 @@ const outerProductSlices = Array.from({ length: BK }, (_, index) => index);
     pointer-events: none;
   }
 
-  .tile-arrows {
+  .outer-grid-line {
+    stroke: var(--viz-grid);
+    stroke-width: 0.9;
+    pointer-events: none;
+  }
+
+  .tile-arrows,
+  .thread-arrows {
     pointer-events: none;
   }
 
@@ -651,6 +864,15 @@ const outerProductSlices = Array.from({ length: BK }, (_, index) => index);
     fill: none;
     opacity: 0.78;
     stroke: var(--viz-block);
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 3;
+  }
+
+  .thread-arrow {
+    fill: none;
+    opacity: 0.8;
+    stroke: var(--viz-thread);
     stroke-linecap: round;
     stroke-linejoin: round;
     stroke-width: 3;
