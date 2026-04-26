@@ -6,12 +6,6 @@ date: "2024-02-22"
 
 # Finetuning LLMs for ReAct
 
-_Unleashing the power of finetuning to improve multi-hop question-answering ability in LLMs._
-
-![Photo by Alina Grubnyak on Unsplash](/blog/finetuning-llms-for-react/image-1.jpg)
-
-_Photo by [Alina Grubnyak](https://unsplash.com/@alinnnaaaa?utm_source=medium&utm_medium=referral) on [Unsplash](https://unsplash.com?utm_source=medium&utm_medium=referral)_
-
 In this article, I will share my findings in benchmarking and finetuning open-source language models for ReAct (Reasoning + Acting). I demonstrate that finetuning can dramatically improve the accuracy of LLMs in answering multi-hop questions using ReAct. I also present a [new dataset](https://huggingface.co/datasets/xz56/react-llama) that can be used to finetune models for the ReAct format presented by the original paper ([Yao et al., 2022](https://arxiv.org/abs/2210.03629)). My findings indicate that, through finetuning, open-source LLMs show promise for making agents that can effectively reason and use tools.
 
 ## Language Models Reasoning?
