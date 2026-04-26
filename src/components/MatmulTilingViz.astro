@@ -18,14 +18,23 @@ const THREAD_SIZE = MATRIX_SIZE / THREAD_COUNT;
 const K_ZOOM_WIDTH = 34;
 const OUTER_PRODUCT_K_INDEX = 3;
 const OUTER_PRODUCT_K_SIZE = K_ZOOM_WIDTH / BK;
-const OUTER_TILE_SIZE = 80;
-const OUTER_SLICE_SIZE = 20;
+const OUTER_TILE_SIZE = 200;
+const OUTER_SLICE_SIZE = 34;
+const OUTER_GAP = 12;
+const OUTER_C_OFFSET = OUTER_SLICE_SIZE + OUTER_GAP;
+const OUTER_CELL_SIZE = OUTER_TILE_SIZE / TM;
 const THREAD_LAYER_X = 224;
 const THREAD_LAYER_Y = 520;
 const THREAD_LAYER_SCALE = 0.85;
-const OUTER_LAYER_X = 401;
-const OUTER_LAYER_Y = 815;
-const OUTER_LAYER_SCALE = 0.75;
+const OUTER_LAYER_X = 335;
+const OUTER_LAYER_Y = 810;
+const OUTER_LAYER_SCALE = 0.70;
+
+const outerAValues = [1.2, 0.4, 2.1, 0.8, 1.7, 0.3, 2.5, 1.1];
+const outerBValues = [0.4, 1.3, 0.9, 2.2, 0.5, 1.8, 0.7, 1.4];
+const outerCValues = outerAValues.map((a) =>
+  outerBValues.map((b) => +((a * b).toFixed(1))),
+);
 
 const blocks = Array.from({ length: TILE_COUNT * TILE_COUNT }, (_, index) => ({
   row: Math.floor(index / TILE_COUNT),
@@ -54,6 +63,9 @@ const outerProductSlices = Array.from({ length: BK }, (_, index) => index);
   data-outer-layer-x={OUTER_LAYER_X}
   data-outer-layer-y={OUTER_LAYER_Y}
   data-outer-layer-scale={OUTER_LAYER_SCALE}
+  data-outer-slice-size={OUTER_SLICE_SIZE}
+  data-outer-c-offset={OUTER_C_OFFSET}
+  data-outer-cell-size={OUTER_CELL_SIZE}
   data-featured-row={FEATURED_ROW}
   data-featured-col={FEATURED_COL}
   data-active-k-tile={ACTIVE_K_TILE}
@@ -69,7 +81,8 @@ const outerProductSlices = Array.from({ length: BK }, (_, index) => index);
     <desc id="blocktile-viz-desc">
       Hover a C blocktile to highlight the corresponding A block row and B block
       column. Hover a threadtile to highlight the A and B slices used by that
-      thread.
+      thread. Hover a cell in the outer product C to see which A row and B
+      column values are multiplied.
     </desc>
 
     <defs>
@@ -324,11 +337,28 @@ const outerProductSlices = Array.from({ length: BK }, (_, index) => index);
       class="outer-product-diagram"
       transform={`translate(${OUTER_LAYER_X} ${OUTER_LAYER_Y}) scale(${OUTER_LAYER_SCALE})`}
     >
-      <g class="outer-a" transform="translate(0 44)">
+      <g class="outer-a" transform={`translate(0 ${OUTER_C_OFFSET})`}>
         <rect
           class="matrix-fill"
           width={OUTER_SLICE_SIZE}
           height={OUTER_TILE_SIZE}></rect>
+        <rect
+          class="outer-a-row-highlight"
+          x="0"
+          width={OUTER_SLICE_SIZE}
+          y="0"
+          height={OUTER_CELL_SIZE}></rect>
+        {
+          outerAValues.map((val, i) => (
+            <text
+              class="outer-value-label"
+              x={OUTER_SLICE_SIZE / 2}
+              y={i * OUTER_CELL_SIZE + OUTER_CELL_SIZE / 2}
+            >
+              {val.toFixed(1)}
+            </text>
+          ))
+        }
         {
           Array.from({ length: TM + 1 }, (_, row) => (
             <line
@@ -354,11 +384,28 @@ const outerProductSlices = Array.from({ length: BK }, (_, index) => index);
         >
       </g>
 
-      <g class="outer-b" transform="translate(44 0)">
+      <g class="outer-b" transform={`translate(${OUTER_C_OFFSET} 0)`}>
         <rect
           class="matrix-fill"
           width={OUTER_TILE_SIZE}
           height={OUTER_SLICE_SIZE}></rect>
+        <rect
+          class="outer-b-col-highlight"
+          y="0"
+          height={OUTER_SLICE_SIZE}
+          x="0"
+          width={OUTER_CELL_SIZE}></rect>
+        {
+          outerBValues.map((val, j) => (
+            <text
+              class="outer-value-label"
+              x={j * OUTER_CELL_SIZE + OUTER_CELL_SIZE / 2}
+              y={OUTER_SLICE_SIZE / 2}
+            >
+              {val.toFixed(1)}
+            </text>
+          ))
+        }
         {
           Array.from({ length: TN + 1 }, (_, col) => (
             <line
@@ -374,7 +421,8 @@ const outerProductSlices = Array.from({ length: BK }, (_, index) => index);
           class="matrix-border"
           width={OUTER_TILE_SIZE}
           height={OUTER_SLICE_SIZE}></rect>
-        <text class="axis-label" x={OUTER_TILE_SIZE / 2} y="-12">TN = {TN}</text
+        <text class="axis-label" x={OUTER_TILE_SIZE / 2} y="-12"
+          >TN = {TN}</text
         >
         <text
           class="axis-label"
@@ -383,11 +431,30 @@ const outerProductSlices = Array.from({ length: BK }, (_, index) => index);
         >
       </g>
 
-      <g class="outer-c" transform="translate(44 44)">
+      <g class="outer-c" transform={`translate(${OUTER_C_OFFSET} ${OUTER_C_OFFSET})`}>
         <rect
           class="matrix-fill"
           width={OUTER_TILE_SIZE}
           height={OUTER_TILE_SIZE}></rect>
+        <rect
+          class="outer-c-cell-highlight"
+          x="0"
+          y="0"
+          width={OUTER_CELL_SIZE}
+          height={OUTER_CELL_SIZE}></rect>
+        {
+          outerCValues.map((row, i) =>
+            row.map((val, j) => (
+              <text
+                class="outer-c-value"
+                x={j * OUTER_CELL_SIZE + OUTER_CELL_SIZE / 2}
+                y={i * OUTER_CELL_SIZE + OUTER_CELL_SIZE / 2}
+              >
+                {val}
+              </text>
+            )),
+          )
+        }
         {
           Array.from({ length: TM + 1 }, (_, row) => (
             <line
@@ -414,7 +481,30 @@ const outerProductSlices = Array.from({ length: BK }, (_, index) => index);
           class="matrix-border"
           width={OUTER_TILE_SIZE}
           height={OUTER_TILE_SIZE}></rect>
+        {
+          outerCValues.map((row, i) =>
+            row.map((_, j) => (
+              <rect
+                class="outer-c-hitbox"
+                data-outer-row={i}
+                data-outer-col={j}
+                x={j * OUTER_CELL_SIZE}
+                y={i * OUTER_CELL_SIZE}
+                width={OUTER_CELL_SIZE}
+                height={OUTER_CELL_SIZE}
+              />
+            )),
+          )
+        }
       </g>
+
+      <text
+        class="outer-equation"
+        x={OUTER_C_OFFSET + OUTER_TILE_SIZE / 2}
+        y={OUTER_C_OFFSET + OUTER_TILE_SIZE + 34}
+      >
+        {outerAValues[0].toFixed(1)} &times; {outerBValues[0].toFixed(1)} = {outerCValues[0][0]}
+      </text>
     </g>
 
     <g class="tile-arrows">
@@ -453,7 +543,7 @@ const outerProductSlices = Array.from({ length: BK }, (_, index) => index);
     <g class="thread-arrows">
       <path
         class="thread-arrow a-outer-arrow"
-        d="M 287.64375 655.575 L 401 848"
+        d="M 287.64375 655.575 L 335 845"
         fill="none"
         marker-end="url(#thread-arrowhead)"
         opacity="0.85"
@@ -463,7 +553,7 @@ const outerProductSlices = Array.from({ length: BK }, (_, index) => index);
         stroke-width="3.5"></path>
       <path
         class="thread-arrow b-outer-arrow"
-        d="M 419.925 544.54375 L 434 815"
+        d="M 419.925 544.54375 L 368 810"
         fill="none"
         marker-end="url(#thread-arrowhead)"
         opacity="0.85"
@@ -473,7 +563,7 @@ const outerProductSlices = Array.from({ length: BK }, (_, index) => index);
         stroke-width="3.5"></path>
       <path
         class="thread-arrow c-outer-arrow"
-        d="M 419.925 655.575 L 434 848"
+        d="M 419.925 655.575 L 368 845"
         fill="none"
         marker-end="url(#thread-arrowhead)"
         opacity="0.85"
@@ -504,9 +594,15 @@ const outerProductSlices = Array.from({ length: BK }, (_, index) => index);
     const outerLayerX = Number(figure.dataset.outerLayerX);
     const outerLayerY = Number(figure.dataset.outerLayerY);
     const outerLayerScale = Number(figure.dataset.outerLayerScale);
+    const outerSliceSize = Number(figure.dataset.outerSliceSize);
+    const outerCOffset = Number(figure.dataset.outerCOffset);
+    const outerCellSize = Number(figure.dataset.outerCellSize);
     const featuredRow = Number(figure.dataset.featuredRow);
     const featuredCol = Number(figure.dataset.featuredCol);
     const activeKTile = Number(figure.dataset.activeKTile);
+
+    const outerAValues = [1.2, 0.4, 2.1, 0.8, 1.7, 0.3, 2.5, 1.1];
+    const outerBValues = [0.4, 1.3, 0.9, 2.2, 0.5, 1.8, 0.7, 1.4];
 
     const selectedBlock = figure.querySelector(".c-selected-block");
     const aRow = figure.querySelector(".a-row-highlight");
@@ -528,6 +624,10 @@ const outerProductSlices = Array.from({ length: BK }, (_, index) => index);
     const aOuterArrow = figure.querySelector(".a-outer-arrow");
     const bOuterArrow = figure.querySelector(".b-outer-arrow");
     const cOuterArrow = figure.querySelector(".c-outer-arrow");
+    const outerAHighlight = figure.querySelector(".outer-a-row-highlight");
+    const outerBHighlight = figure.querySelector(".outer-b-col-highlight");
+    const outerCHighlight = figure.querySelector(".outer-c-cell-highlight");
+    const outerEquation = figure.querySelector(".outer-equation");
 
     function updateBlock(row, col) {
       selectedBlock?.setAttribute("x", String(col * blockSize));
@@ -592,7 +692,7 @@ const outerProductSlices = Array.from({ length: BK }, (_, index) => index);
           scaledThreadX(60 + 3 * (34 / 8) + 34 / 16),
           scaledThreadY(72 + row * threadSize + threadSize / 2),
           scaledOuterX(0),
-          scaledOuterY(44),
+          scaledOuterY(outerCOffset),
         ),
       );
       bOuterArrow?.setAttribute(
@@ -600,7 +700,7 @@ const outerProductSlices = Array.from({ length: BK }, (_, index) => index);
         makeArrowPath(
           scaledThreadX(118 + col * threadSize + threadSize / 2),
           scaledThreadY(14 + 3 * (34 / 8) + 34 / 16),
-          scaledOuterX(44),
+          scaledOuterX(outerCOffset),
           scaledOuterY(0),
         ),
       );
@@ -609,13 +709,28 @@ const outerProductSlices = Array.from({ length: BK }, (_, index) => index);
         makeArrowPath(
           scaledThreadX(118 + col * threadSize + threadSize / 2),
           scaledThreadY(72 + row * threadSize + threadSize / 2),
-          scaledOuterX(44),
-          scaledOuterY(44),
+          scaledOuterX(outerCOffset),
+          scaledOuterY(outerCOffset),
         ),
       );
 
       if (threadReadout) {
         threadReadout.textContent = `Threadtile (${row}, ${col}): A row-slice ${row}, B col-slice ${col}.`;
+      }
+    }
+
+    function updateOuterCell(row, col) {
+      const aVal = outerAValues[row];
+      const bVal = outerBValues[col];
+      const result = +((aVal * bVal).toFixed(1));
+
+      outerAHighlight?.setAttribute("y", String(row * outerCellSize));
+      outerBHighlight?.setAttribute("x", String(col * outerCellSize));
+      outerCHighlight?.setAttribute("x", String(col * outerCellSize));
+      outerCHighlight?.setAttribute("y", String(row * outerCellSize));
+
+      if (outerEquation) {
+        outerEquation.textContent = `${aVal} × ${bVal} = ${result}`;
       }
     }
 
@@ -665,8 +780,20 @@ const outerProductSlices = Array.from({ length: BK }, (_, index) => index);
         });
       });
 
+    figure
+      .querySelectorAll("[data-outer-row][data-outer-col]")
+      .forEach((cell) => {
+        cell.addEventListener("pointerenter", () => {
+          updateOuterCell(
+            Number(cell.dataset.outerRow),
+            Number(cell.dataset.outerCol),
+          );
+        });
+      });
+
     updateBlock(featuredRow, featuredCol);
     updateThread(3, 4);
+    updateOuterCell(0, 0);
   });
 </script>
 
@@ -678,6 +805,7 @@ const outerProductSlices = Array.from({ length: BK }, (_, index) => index);
     --viz-block: oklch(0.72 0.18 65);
     --viz-thread: oklch(0.68 0.19 230);
     --viz-thread-soft: oklch(0.68 0.19 230 / 0.16);
+    --viz-outer: oklch(0.62 0.20 145);
     display: grid;
     gap: 1rem;
     margin: 2rem 0;
@@ -871,6 +999,56 @@ const outerProductSlices = Array.from({ length: BK }, (_, index) => index);
     stroke-linecap: round;
     stroke-linejoin: round;
     stroke-width: 3;
+  }
+
+  .outer-a-row-highlight,
+  .outer-b-col-highlight {
+    fill: oklch(0.62 0.20 145 / 0.38);
+    stroke: var(--viz-outer);
+    stroke-width: 1.5;
+    pointer-events: none;
+  }
+
+  .outer-c-cell-highlight {
+    fill: oklch(0.62 0.20 145 / 0.18);
+    stroke: var(--viz-outer);
+    stroke-width: 1.5;
+    pointer-events: none;
+  }
+
+  .outer-value-label {
+    fill: var(--foreground);
+    font-family: var(--font-mono);
+    font-size: 9px;
+    text-anchor: middle;
+    dominant-baseline: central;
+    pointer-events: none;
+  }
+
+  .outer-c-value {
+    fill: var(--muted-foreground);
+    font-family: var(--font-mono);
+    font-size: 8px;
+    text-anchor: middle;
+    dominant-baseline: central;
+    pointer-events: none;
+  }
+
+  .outer-c-hitbox {
+    fill: transparent;
+    cursor: crosshair;
+  }
+
+  .outer-c-hitbox:hover {
+    fill: oklch(0.62 0.20 145 / 0.12);
+  }
+
+  .outer-equation {
+    fill: var(--foreground);
+    font-family: var(--font-mono);
+    font-size: 14px;
+    text-anchor: middle;
+    pointer-events: none;
   }
 
   @media (max-width: 960px) {
