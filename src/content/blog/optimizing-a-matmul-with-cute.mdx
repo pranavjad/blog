@@ -75,13 +75,14 @@ Memory access pattern
 | block               | Each block loads a blocktiles from A/B from global memory (gmem) to a shared memory buffer (smem) |
 | thread              | Each thread loads threadtile slices from A/B blocktiles from gmem to register memory (rmem)       |
 
-1. threads cooperatively load A, B blocktiles from gmem --> smem
-2. each thread loads the threadtile slice from the A/B blocktiles from smem --> rmem
-3. each thread does one iteration of outer product accumulation into it's (TM, TN) threadtile
+1. threads cooperatively load A, B <span style={{color: "oklch(0.72 0.18 65)"}}>blocktiles</span> from gmem --> smem
+2. each thread loads the <span style={{color: "oklch(0.68 0.19 230)"}}>threadtile</span> slice from the A/B <span style={{color: "oklch(0.72 0.18 65)"}}>blocktiles</span> from smem --> rmem
+3. each thread does one iteration of <span style={{color: "oklch(0.62 0.20 145)"}}>outer product</span> accumulation into it's (TM, TN) <span style={{color: "oklch(0.68 0.19 230)"}}>threadtile</span>
 4. Repeat steps 2-3 advancing the slices along BK dimension
-5. Repeat steps 1-4 advancing the blocktiles along K dimension
+5. Repeat steps 1-4 advancing the <span style={{color: "oklch(0.72 0.18 65)"}}>blocktiles</span> along K dimension
 6. Write results from rmem --> gmem
 
+The following visualization shows the hierarchy and access patterns of this matmul.
 <MatmulTilingViz />
 
 Now, let's implement it using CuTe! The first thing we need to do is declare the kernel. Simon's reference kernel is on the left, and the CuTe version is on the right.
