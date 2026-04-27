@@ -6,6 +6,7 @@ date: "2026-04-26"
 
 import MatmulTilingViz from "../../components/MatmulTilingViz.astro";
 import LocalTileViz from "../../components/LocalTileViz.astro";
+import LocalPartitionViz from "../../components/LocalPartitionViz.astro";
 import CodePair from "../../components/CodePair.astro";
 
 # Optimizing a MatMul with CuTe (Part 1)
@@ -242,7 +243,7 @@ Great, so we've achieved everything our reference kernel does so far. Let's see 
 1. calculate each thread's share of the blocktile it should load from gmem to smem
 2. declare register memory for storing computation results, and for staging parts of the threadtiles for computation.
 
-Here's what is looks like with CuTe. In CuTe we actually do a little more up front work, rather than doing complex indexing later which will become clear as we see the main loops of each kernel.
+In CuTe we actually do a little more up front work rather than doing complex indexing later which will become clear as we see the main loops of each kernel.
 
 <CodePair>
   <Fragment slot="left">
@@ -301,13 +302,10 @@ Here's what is looks like with CuTe. In CuTe we actually do a little more up fro
   </Fragment>
 </CodePair>
 
-Again at a high level we achieve the same thing:
+We achieve the 2 points above, but additionally we do the following up front, which Simon's kernel does implicitly later via indexing expressions:
 
-1. Calculate which part of gmem blocktiles each thread should load to smem.
-2. declare rmem for storing computation results.
-   But additionally we do the following up front, which Simon's kernel does implicitly later via indexing expressions:
-3. Calculate which parts of the smem blocktiles the thread needs to read in order to calculate it's threadtile.
-4. Calculate which parts of global memory this thread should write it's results to.
+1. Calculate which parts of the smem blocktiles the thread needs to read in order to calculate it's threadtile.
+2. Calculate which parts of global memory this thread should write it's results to.
    In Simon's kernel we also do this, it just shows up as an indexing calculation later on in the hot loop, like `sA[calculation]`. Since CuTe is about avoiding these manual indexing calculations, and doing everything with layouts we do this work up front.
 
 Let's take a closer look.
@@ -323,6 +321,8 @@ Tensor sB_to_w = local_partition(sB, B_thread_layout, threadIdx.x);
 ```
 
 The `local_partition` function is similar to the `local_tile` function, but rather than letting you pick out a tile by coordinate, it lets you pick out an element of each tile. Formally, `local_partition(tensor, layout, index)` tiles `tensor` according to `shape(layout)` producing a tensor of shape `((tile_w, tile_h), (rest_w, rest_h))` as we saw before. However instead of indexing into mode 1 which would be grabbing one tile, it indexes into mode 0. For example `local_partition(tensor, layout, 0)` grabs the first element from each tile giving you a tensor of shape `(rest_w, rest_h)` (TODO: add vis here).
+
+<LocalPartitionViz />
 
 One more thing you may have noticed. In order to decide which element of the tile to grab, we give it a 1D index. But the tile shape is usually ND. How does cute convert between the two? That is a design choice of the framework, and CuTe chooses to do it via colexicographic ordering, which they explain in detail in the docs [here](https://docs.nvidia.com/cutlass/latest/media/docs/cpp/cute/01_layout.html#coordinate-mapping). Basically, its column major so for a 2x2 tensor the 1D to 2D coordinate mapping would look like `0 -> (0, 0), 1 -> (1, 0), 2 -> (0, 1), 3 -> (1, 1)`.
 

@@ -16,43 +16,59 @@ const SVG_HEIGHT = TEXT_CENTER_Y + 16;
 const SWATCH_SIZE = 12;
 const SWATCH_GAP = 8;
 
-const tiles = Array.from({ length: TILE_COUNT * TILE_COUNT }, (_, index) => ({
-  row: Math.floor(index / TILE_COUNT),
-  col: index % TILE_COUNT,
-}));
+const cells = Array.from(
+  { length: TENSOR_DIM * TENSOR_DIM },
+  (_, index) => ({
+    row: Math.floor(index / TENSOR_DIM),
+    col: index % TENSOR_DIM,
+  }),
+);
 
-const FEATURED_ROW = 2;
-const FEATURED_COL = 5;
+const tilePositions = Array.from(
+  { length: TILE_COUNT * TILE_COUNT },
+  (_, i) => ({
+    tileRow: Math.floor(i / TILE_COUNT),
+    tileCol: i % TILE_COUNT,
+  }),
+);
+
+const FEATURED_INNER_ROW = 0;
+const FEATURED_INNER_COL = 0;
+const FEATURED_INDEX = FEATURED_INNER_COL * TILE_DIM + FEATURED_INNER_ROW;
 ---
 
 <figure
-  class="local-tile-viz"
+  class="local-partition-viz"
   data-matrix-x={MATRIX_X}
   data-matrix-y={MATRIX_Y}
+  data-cell-size={CELL_SIZE}
   data-tile-size={TILE_SIZE}
+  data-tile-dim={TILE_DIM}
   data-svg-width={SVG_WIDTH}
   data-text-center-y={TEXT_CENTER_Y}
   data-swatch-size={SWATCH_SIZE}
   data-swatch-gap={SWATCH_GAP}
-  data-featured-row={FEATURED_ROW}
-  data-featured-col={FEATURED_COL}
+  data-featured-inner-row={FEATURED_INNER_ROW}
+  data-featured-inner-col={FEATURED_INNER_COL}
+  data-featured-index={FEATURED_INDEX}
 >
   <svg
-    class="local-tile-panel"
+    class="local-partition-panel"
     width={SVG_WIDTH}
     height={SVG_HEIGHT}
     viewBox={`0 0 ${SVG_WIDTH} ${SVG_HEIGHT}`}
     role="img"
-    aria-label="local_tile visualization"
-    aria-describedby="local-tile-viz-desc"
+    aria-label="local_partition visualization"
+    aria-describedby="local-partition-viz-desc"
   >
-    <desc id="local-tile-viz-desc">
-      Hover a tile to see the make_coord arguments for that coordinate.
+    <desc id="local-partition-viz-desc">
+      Hover a cell to highlight all cells at the same intra-tile position
+      across every tile — that set is the local_partition.
     </desc>
 
     <defs>
       <pattern
-        id="local-tile-tile-grid"
+        id="local-partition-tile-grid"
         width={TILE_SIZE}
         height={TILE_SIZE}
         patternUnits="userSpaceOnUse"
@@ -60,7 +76,7 @@ const FEATURED_COL = 5;
         <path d={`M ${TILE_SIZE} 0 L 0 0 0 ${TILE_SIZE}`}></path>
       </pattern>
       <pattern
-        id="local-tile-cell-grid"
+        id="local-partition-cell-grid"
         width={CELL_SIZE}
         height={CELL_SIZE}
         patternUnits="userSpaceOnUse"
@@ -75,21 +91,35 @@ const FEATURED_COL = 5;
         class="cell-grid"
         width={MATRIX_SIZE}
         height={MATRIX_SIZE}></rect>
-      <rect class="tile-selected" width={TILE_SIZE} height={TILE_SIZE}></rect>
+      <g class="partition-highlights">
+        {
+          tilePositions.map((tile) => (
+            <rect
+              class="partition-cell"
+              data-tile-row={tile.tileRow}
+              data-tile-col={tile.tileCol}
+              x={tile.tileCol * TILE_SIZE + FEATURED_INNER_COL * CELL_SIZE}
+              y={tile.tileRow * TILE_SIZE + FEATURED_INNER_ROW * CELL_SIZE}
+              width={CELL_SIZE}
+              height={CELL_SIZE}
+            />
+          ))
+        }
+      </g>
       <rect
         class="tile-grid"
         width={MATRIX_SIZE}
         height={MATRIX_SIZE}></rect>
       {
-        tiles.map((tile) => (
+        cells.map((cell) => (
           <rect
-            class="tile-hitbox"
-            data-tile-row={tile.row}
-            data-tile-col={tile.col}
-            x={tile.col * TILE_SIZE}
-            y={tile.row * TILE_SIZE}
-            width={TILE_SIZE}
-            height={TILE_SIZE}
+            class="cell-hitbox"
+            data-cell-row={cell.row}
+            data-cell-col={cell.col}
+            x={cell.col * CELL_SIZE}
+            y={cell.row * CELL_SIZE}
+            width={CELL_SIZE}
+            height={CELL_SIZE}
           />
         ))
       }
@@ -102,43 +132,57 @@ const FEATURED_COL = 5;
       <text class="axis-label vertical" x="-18" y={MATRIX_SIZE / 2}>64</text>
     </g>
 
-    <line class="connector"></line>
+    <g class="connectors">
+      {
+        tilePositions.map((tile) => (
+          <line
+            class="connector"
+            data-tile-row={tile.tileRow}
+            data-tile-col={tile.tileCol}
+          />
+        ))
+      }
+    </g>
 
     <rect
       class="call-square"
       width={SWATCH_SIZE}
       height={SWATCH_SIZE}></rect>
     <text class="call-text" dominant-baseline="middle">
-      <tspan> = local_tile(tensor, make_shape(8, 8), make_coord(</tspan><tspan
-        class="call-coord">2</tspan
-      ><tspan>, </tspan><tspan class="call-coord">5</tspan><tspan>))</tspan>
+      <tspan> = local_partition(tensor, make_layout(8, 8), </tspan><tspan
+        class="call-coord">0</tspan
+      ><tspan>)</tspan>
     </text>
   </svg>
 </figure>
 
 <script>
-  const figures = document.querySelectorAll(".local-tile-viz");
+  const figures = document.querySelectorAll(".local-partition-viz");
 
   figures.forEach((figure) => {
     const el = figure as HTMLElement;
     const matrixX = Number(el.dataset.matrixX);
     const matrixY = Number(el.dataset.matrixY);
+    const cellSize = Number(el.dataset.cellSize);
     const tileSize = Number(el.dataset.tileSize);
+    const tileDim = Number(el.dataset.tileDim);
     const svgWidth = Number(el.dataset.svgWidth);
     const textCenterY = Number(el.dataset.textCenterY);
     const swatchSize = Number(el.dataset.swatchSize);
     const swatchGap = Number(el.dataset.swatchGap);
-    const featuredRow = Number(el.dataset.featuredRow);
-    const featuredCol = Number(el.dataset.featuredCol);
+    const featuredInnerRow = Number(el.dataset.featuredInnerRow);
+    const featuredInnerCol = Number(el.dataset.featuredInnerCol);
 
-    const selected = figure.querySelector<SVGRectElement>(".tile-selected");
+    const partitionCells = figure.querySelectorAll<SVGRectElement>(
+      ".partition-cell",
+    );
+    const connectors = figure.querySelectorAll<SVGLineElement>(".connector");
     const swatch = figure.querySelector<SVGRectElement>(".call-square");
     const text = figure.querySelector<SVGTextElement>(".call-text");
-    const connector = figure.querySelector<SVGLineElement>(".connector");
-    const coords = figure.querySelectorAll(".call-coord");
+    const coord = figure.querySelector(".call-coord");
 
     function layout() {
-      if (!text || !swatch) return;
+      if (!text || !swatch) return null;
       const bbox = text.getBBox();
       const total = swatchSize + swatchGap + bbox.width;
       const startX = (svgWidth - total) / 2;
@@ -149,54 +193,67 @@ const FEATURED_COL = 5;
       const textX = startX + swatchSize + swatchGap;
       text.setAttribute("x", String(textX));
       text.setAttribute("y", String(textCenterY));
-      // re-anchor tspans on the text by clearing x on them implicitly
       return {
         swatchCenterX: swatchX + swatchSize / 2,
         swatchCenterY: swatchY + swatchSize / 2,
       };
     }
 
-    function update(row: number, col: number) {
-      selected?.setAttribute("x", String(col * tileSize));
-      selected?.setAttribute("y", String(row * tileSize));
-      if (coords[0]) coords[0].textContent = String(row);
-      if (coords[1]) coords[1].textContent = String(col);
-
-      const tileCenterX = matrixX + col * tileSize + tileSize / 2;
-      const tileCenterY = matrixY + row * tileSize + tileSize / 2;
+    function update(innerRow: number, innerCol: number) {
+      const index = innerCol * tileDim + innerRow;
+      partitionCells.forEach((cell) => {
+        const tileRow = Number(cell.dataset.tileRow);
+        const tileCol = Number(cell.dataset.tileCol);
+        cell.setAttribute(
+          "x",
+          String(tileCol * tileSize + innerCol * cellSize),
+        );
+        cell.setAttribute(
+          "y",
+          String(tileRow * tileSize + innerRow * cellSize),
+        );
+      });
+      if (coord) coord.textContent = String(index);
 
       const swatchPos = layout();
-      if (swatchPos && connector) {
-        connector.setAttribute("x1", String(tileCenterX));
-        connector.setAttribute("y1", String(tileCenterY));
-        connector.setAttribute("x2", String(swatchPos.swatchCenterX));
-        connector.setAttribute("y2", String(swatchPos.swatchCenterY));
-      }
+      if (!swatchPos) return;
+
+      connectors.forEach((line) => {
+        const tileRow = Number(line.dataset.tileRow);
+        const tileCol = Number(line.dataset.tileCol);
+        const cx =
+          matrixX +
+          tileCol * tileSize +
+          innerCol * cellSize +
+          cellSize / 2;
+        const cy =
+          matrixY +
+          tileRow * tileSize +
+          innerRow * cellSize +
+          cellSize / 2;
+        line.setAttribute("x1", String(cx));
+        line.setAttribute("y1", String(cy));
+        line.setAttribute("x2", String(swatchPos.swatchCenterX));
+        line.setAttribute("y2", String(swatchPos.swatchCenterY));
+      });
     }
 
     figure
-      .querySelectorAll<HTMLElement>("[data-tile-row][data-tile-col]")
-      .forEach((tile) => {
-        tile.addEventListener("pointerenter", () => {
-          update(
-            Number(tile.dataset.tileRow),
-            Number(tile.dataset.tileCol),
-          );
-        });
-        tile.addEventListener("focus", () => {
-          update(
-            Number(tile.dataset.tileRow),
-            Number(tile.dataset.tileCol),
-          );
+      .querySelectorAll<HTMLElement>("[data-cell-row][data-cell-col]")
+      .forEach((cell) => {
+        cell.addEventListener("pointerenter", () => {
+          const cellRow = Number(cell.dataset.cellRow);
+          const cellCol = Number(cell.dataset.cellCol);
+          update(cellRow % tileDim, cellCol % tileDim);
         });
       });
 
-    update(featuredRow, featuredCol);
+    update(featuredInnerRow, featuredInnerCol);
   });
 </script>
 
 <style>
-  .local-tile-viz {
+  .local-partition-viz {
     --viz-ink: color-mix(in oklab, var(--foreground) 80%, transparent);
     --viz-grid: color-mix(in oklab, var(--foreground) 20%, transparent);
     --viz-tile-grid: color-mix(in oklab, var(--foreground) 36%, transparent);
@@ -209,7 +266,7 @@ const FEATURED_COL = 5;
     margin: 2rem 0;
   }
 
-  .local-tile-panel {
+  .local-partition-panel {
     display: block;
     max-width: 100%;
     height: auto;
@@ -220,21 +277,21 @@ const FEATURED_COL = 5;
   }
 
   .cell-grid {
-    fill: url("#local-tile-cell-grid");
+    fill: url("#local-partition-cell-grid");
   }
 
   .tile-grid {
-    fill: url("#local-tile-tile-grid");
+    fill: url("#local-partition-tile-grid");
     pointer-events: none;
   }
 
-  #local-tile-cell-grid path {
+  #local-partition-cell-grid path {
     fill: none;
     stroke: var(--viz-cell-grid);
     stroke-width: 0.4;
   }
 
-  #local-tile-tile-grid path {
+  #local-partition-tile-grid path {
     fill: none;
     stroke: var(--viz-tile-grid);
     stroke-width: 0.9;
@@ -269,24 +326,20 @@ const FEATURED_COL = 5;
     rotate: -90deg;
   }
 
-  .tile-hitbox {
+  .cell-hitbox {
     fill: transparent;
     cursor: crosshair;
   }
 
-  .tile-hitbox:hover {
-    fill: oklch(0.72 0.18 65 / 0.18);
-  }
-
-  .tile-selected {
-    fill: oklch(0.72 0.18 65 / 0.32);
+  .partition-cell {
+    fill: oklch(0.72 0.18 65 / 0.55);
     stroke: var(--viz-block);
-    stroke-width: 2;
+    stroke-width: 0.5;
     pointer-events: none;
   }
 
   .call-square {
-    fill: oklch(0.72 0.18 65 / 0.32);
+    fill: oklch(0.72 0.18 65 / 0.55);
     stroke: var(--viz-block);
     stroke-width: 1.5;
     pointer-events: none;
@@ -305,8 +358,8 @@ const FEATURED_COL = 5;
   }
 
   .connector {
-    stroke: oklch(0.72 0.18 65 / 0.55);
-    stroke-width: 1;
+    stroke: oklch(0.72 0.18 65 / 0.18);
+    stroke-width: 0.6;
     pointer-events: none;
   }
 </style>
