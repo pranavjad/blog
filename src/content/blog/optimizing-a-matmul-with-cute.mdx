@@ -4,7 +4,6 @@ description: "Implementing CUDA SGEMM optimizations with NVIDIA CuTe layouts and
 date: "2026-04-26"
 ---
 
-import { codePairs } from "../../lib/cuteCodePairs";
 import MatmulTilingViz from "../../components/MatmulTilingViz.astro";
 import CodePair from "../../components/CodePair.astro";
 
@@ -15,13 +14,7 @@ If you like CUDA kernels, you may be aware of the [canonical blogpost](https://s
 My goal with this article is not to explain the matmuls themselves, Simon's article already does a great job at that. Rather, I will go through a few of the most important optimizations and how they would be implemented using CuTe which is sufficient to showcase the framework and learn its core concepts.
 
 In this first post we will write Simon's [2D blocktiling kernel](https://github.com/siboehm/SGEMM_CUDA/blob/master/src/kernels/5_kernel_2D_blocktiling.cuh) with CuTe.
-
-## Table of Contents
-
-1. Preliminaries
-2. 2D blocktiling
-3. 2D blocktiling with vectorized loads
-4. Warp tiling
+It's the first relatively complex kernel and a great starting point.
 
 ## Preliminaries
 
@@ -32,62 +25,124 @@ The goal with each of these kernels is to do a single-precision generalized matr
 
 The result is:
 
-- C = alpha _ (A @ B) + beta _ C
+- C = alpha * (A @ B) + beta * C
 - C is shaped (M, N), alpha and beta are constants
 
-## 2D Blocktiling
+### 2D Blocktiling
 
-This is kernel 5 in Simon's blog, and the first kernel that achieves serious performance. Since the rest of the article assumes understanding of what this kernel does, let's take a minute to review. The 2D blocktiling kernel can be summarized as follows.
+The 2D blocktiling kernel can be summarized as follows.
 
 Computation pattern
 
 | Unit of parallelism | Responsibility                                                                                                                                                                                                                        |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | block               | Calculates a (BM, BN) blocktile of C using a (BM, BK) blocktile from A and a (BK, BN) blocktile from B                                                                                                                                |
-| thread              | Thread calculates a (TM, TN) threadtile of the C blocktile via a mamtul of (TM, BK) @ (BK, TN) threadtiles from A and B respectively. The matmul is done via summing outer product of (TM, 1) slices from A and (1, TN) slices from B |
+| thread              | Calculates a (TM, TN) threadtile of the C blocktile via a mamtul of (TM, BK) @ (BK, TN) threadtiles from A and B respectively. The matmul is done via summing outer product of (TM, 1) slices from A and (1, TN) slices from B |
 
 Memory access pattern
 
 | Unit of parallelism | Responsibility                                                                                    |
 | ------------------- | ------------------------------------------------------------------------------------------------- |
-| block               | Each block loads a blocktiles from A/B from global memory (gmem) to a shared memory buffer (smem) |
+| block               | Each block loads blocktiles from A/B from global memory (gmem) to a shared memory buffer (smem) |
 | thread              | Each thread loads threadtile slices from A/B blocktiles from gmem to register memory (rmem)       |
 
-1. threads cooperatively load A, B <span style={{color: "oklch(0.72 0.18 65)"}}>blocktiles</span> from gmem --> smem
-2. each thread loads the <span style={{color: "oklch(0.68 0.19 230)"}}>threadtile</span> slice from the A/B <span style={{color: "oklch(0.72 0.18 65)"}}>blocktiles</span> from smem --> rmem
-3. each thread does one iteration of <span style={{color: "oklch(0.62 0.20 145)"}}>outer product</span> accumulation into it's (TM, TN) <span style={{color: "oklch(0.68 0.19 230)"}}>threadtile</span>
-4. Repeat steps 2-3 advancing the slices along BK dimension
-5. Repeat steps 1-4 advancing the <span style={{color: "oklch(0.72 0.18 65)"}}>blocktiles</span> along K dimension
-6. Write results from rmem --> gmem
+1. Threads cooperatively load A, B <span style={{color: "oklch(0.72 0.18 65)"}}>blocktiles</span> from gmem --> smem.
+2. Each thread loads the <span style={{color: "oklch(0.68 0.19 230)"}}>threadtile</span> slice from the A/B <span style={{color: "oklch(0.72 0.18 65)"}}>blocktiles</span> from smem --> rmem.
+3. Each thread does one iteration of <span style={{color: "oklch(0.62 0.20 145)"}}>outer product</span> accumulation into it's (TM, TN) <span style={{color: "oklch(0.68 0.19 230)"}}>threadtile</span>.
+4. Repeat steps 2-3 advancing the <span style={{color: "oklch(0.68 0.19 230)"}}>threadtiles</span> along BK dimension.
+5. Repeat steps 1-4 advancing the <span style={{color: "oklch(0.72 0.18 65)"}}>blocktiles</span> along K dimension.
+6. Write results from rmem --> gmem.
 
 The following visualization shows the hierarchy and access patterns of this matmul.
 <MatmulTilingViz />
 
-Now, let's implement it using CuTe! The first thing we need to do is declare the kernel. Simon's reference kernel is on the left, and the CuTe version is on the right.
+Now, let's implement it using CuTe! I will build up the implementation snippet by snippet with Simon's reference kernel on the left, and the CuTe version on the right.
 
-<CodePair pair={codePairs.signature} />
-
-The added template types can be ignored, they exist to capture the complex types CuTe would create so that we don't have to type them out ourselves. For the function arguments, we have a few extra. Namely, we have strides, tilers, and a thread_layout for each matrix. With CuTe, we can use these objects to extract the portions of our inputs and outputs and each thread will read and write to. You will see that overarching theme again and again: CuTe gives us a powerful language to describe shapes, layouts, and access patterns along with an ergenomic set of utilies to extract a given thread's workload from that description. Fundamentally, that's all we really need to write matmuls.
-
-The next part of our reference kernel
-
+First, the reference kernel
 1. defines some bookkeeping variables used for indexing calculations later
 2. allocates shared memory to load the blocktiles into
 3. calculates which blocktile this block handles
 
+
+<CodePair>
+  <Fragment slot="left">
+    ```cpp
+    __global__ void sgemm2DBlocktiling(
+      int M, int N, int K,
+      float alpha, const float *A, const float *B, float beta, float *C
+    ) {
+      const uint cRow = blockIdx.y;
+      const uint cCol = blockIdx.x;
+
+      const uint totalResultsBlocktile = BM * BN;
+      // A thread is responsible for calculating TM*TN elements in the blocktile
+      const uint numThreadsBlocktile = totalResultsBlocktile / (TM * TN);
+
+      // ResultsPerBlock / ResultsPerThread == ThreadsPerBlock
+      assert(numThreadsBlocktile == blockDim.x);
+
+      // BN/TN are the number of threads to span a column
+      const int threadCol = threadIdx.x % (BN / TN);
+      const int threadRow = threadIdx.x / (BN / TN);
+
+      // allocate space for the current blocktile in smem
+      __shared__ float As[BM * BK];
+      __shared__ float Bs[BK * BN];
+
+      // Move blocktile to beginning of A's row and B's column
+      A += cRow * BM * K;
+      B += cCol * BN;
+      C += cRow * BM * N + cCol * BN;
+    ```
+  </Fragment>
+  <Fragment slot="right">
+    ```cpp
+    __global__ void sgemm2DBlocktilingCute(
+        int M, int N, int K,
+        float alpha, const float *A, const float *B, float beta, float *C
+    ) {
+        using namespace cute;
+
+        // create Tensors from data + Layout
+        auto A_gmem_layout = make_layout(make_shape(M, K), LayoutRight{});
+        auto B_gmem_layout = make_layout(make_shape(K, N), LayoutRight{});
+        auto C_gmem_layout = make_layout(make_shape(M, N), LayoutRight{});
+        Tensor mA = make_tensor(make_gmem_ptr(A), A_gmem_layout);
+        Tensor mB = make_tensor(make_gmem_ptr(B), B_gmem_layout);
+        Tensor mC = make_tensor(make_gmem_ptr(C), C_gmem_layout);
+
+        // blocktiles in gmem
+        auto A_blocktile = make_shape(BM, BK);
+        auto B_blocktile = make_shape(BK, BN);
+        auto C_blocktile = make_shape(BM, BN);
+        Tensor gA = local_tile(mA, A_blocktile, make_coord(blockIdx.y, _)); // (BM, BK, k)
+        Tensor gB = local_tile(mB, B_blocktile, make_coord(_, blockIdx.x)); // (BK, BN, k)
+        Tensor gC = local_tile(mC, C_blocktile, make_coord(blockIdx.y, blockIdx.x)); // (BM, BN)
+
+        // blocktiles in smem
+        auto A_smem_layout = make_layout(A_blocktile, LayoutRight{});
+        auto B_smem_layout = make_layout(B_blocktile, LayoutRight{});
+        __shared__ float A_smem[cosize_v<decltype(A_smem_layout)>];
+        __shared__ float B_smem[cosize_v<decltype(B_smem_layout)>];
+        Tensor sA = make_tensor(make_smem_ptr(A_smem), A_smem_layout);
+        Tensor sB = make_tensor(make_smem_ptr(B_smem), B_smem_layout);
+    ```
+  </Fragment>
+</CodePair>
+
 Here's what it looks like with CuTe. A few things to note:
 
-1. Less indexing variables like cRow, threadCol in CuTe. Instead of indexing via complex expressions involving these variables, we defer that calculation to a Layout on a Tensor.
-2. Everything we work with is a Tensor.
+1. Less indexing variables like `cRow` or `threadCol` in CuTe. Instead of indexing via complex expressions involving these variables, we defer that calculation to a Layout on a Tensor.
+2. We create a tensor for every object we want to work with ie. blocktiles, the smem space for the blocktiles, later the threadtiles, etc.
+### Tensor and Layout
 
-<CodePair pair={codePairs.preamble} />
+We've just seen two foundational CuTe concepts. First is the Layout.
+A Layout is a pair of (shape, stride) where shape and stride are n-tuples, often denoted as `shape:stride`.
 
-### Tensors and Layouts
-
-This the first snippet where we see some real CuTe operations. Let's break them down.
-
-- Tensor: a Tensor is data with some Layout
-- Layout: a Layout is a pair of shape:stride. The Shape defines the logical dimensions of the Layout's coordinate system. The strides define how many elements you have to skip in the buffer to get to the next element along that dimension. Fundmantally a Layout is just a function that maps a coordinate like (0, 1) to an offset like 1. For example, a row major 2x4 Tensor would have the layout (2, 4):(4, 1). Again, that layout is a function which you can call:
+Fundamantally a Layout is just a function that maps an ND logical coordinate to a 1D offset in a buffer ie. `(0, 1) -> 1`.
+The Shape defines the dimensions of the Layout's coordinate system.
+The Stride defines how many elements you have to skip in the buffer to get to the next element along that dimension. 
+For example, a row major 2x4 matrix would have the layout (2, 4):(4, 1). Again, that layout defines a function which you can call:
 
 ```cpp
 // layout - (2, 4):(4, 1)
@@ -96,42 +151,87 @@ layout(1, 0) = 4; layout(1, 1) = 5; layout(1, 2) = 6; layout(1, 3) = 7;
 ...
 ```
 
-Or we could visualize a 2D layout like this. Then shows us what 2D coordinate maps to what offset more intuitively.
+A Tensor is just a data buffer combined with a layout that tells you how coordinates map to offsets in the buffer.
+So to index a Tensor, CuTe simply uses the Layout to calculate what offset to find the data at instead of us doing it manually.
 
-```
-0 1 2 3
-4 5 6 7
-```
+Vanilla:
+```cpp
+// declare buffer, we treat it as (M, N) row major
+int buffer[M * N];
 
-A Tensor is a data buffer with a layout that tells you how tuple coordinates map to offsets in the buffer. So to index a Tensor, CuTe simply uses the Layout to calculate what offset to find the data at instead of us doing it manually.
+// index buffer
+int data = buffer[row * N + col];
+```
+With a layout:
+```cpp
+// declare buffer, we treat it as (M, N) row major
+int buffer[M * N];
+auto layout = make_layout(make_shape(M, N), make_stride(N, 1));
+
+// index buffer
+int data = buffer[layout(row, col)];
+```
+With a tensor:
+```cpp
+// declare a tensor combining buffer + layout
+// we treat it as (M, N) row major
+int buffer[M * N];
+auto tensor = make_tensor(
+  buffer,
+  make_layout(make_shape(M, N), make_stride(N, 1))
+);
+
+// index buffer
+int data = tensor(row, col);
+```
+This is a simple example but we will see with more complex indexing, having the Layout instead of calculating offsets manually is very nice.
+
 Now, let's return to the CuTe snippet. Given the context on Tensors and Layouts, we can now understand this portion:
 
 ```cpp
 // create Tensors from data + Layout
-Tensor mA = make_tensor(make_gmem_ptr(A), make_shape(M, K), A_strides);
-Tensor mB = make_tensor(make_gmem_ptr(B), make_shape(K, N), B_strides);
-Tensor mC = make_tensor(make_gmem_ptr(C), make_shape(M, N), C_strides);
+auto A_gmem_layout = make_layout(make_shape(M, K), LayoutRight{});
+auto B_gmem_layout = make_layout(make_shape(K, N), LayoutRight{});
+auto C_gmem_layout = make_layout(make_shape(M, N), LayoutRight{});
+Tensor mA = make_tensor(make_gmem_ptr(A), A_gmem_layout);
+Tensor mB = make_tensor(make_gmem_ptr(B), B_gmem_layout);
+Tensor mC = make_tensor(make_gmem_ptr(C), C_gmem_layout);
 
-// shared tiles
-__shared__ float A_smem[cosize_v<ASmemLayout>];
-__shared__ float B_smem[cosize_v<BSmemLayout>];
-Tensor sA = make_tensor(make_smem_ptr(A_smem), A_shared_layout);
-Tensor sB = make_tensor(make_smem_ptr(B_smem), B_shared_layout);
+// blocktiles in smem
+auto A_smem_layout = make_layout(A_blocktile, LayoutRight{});
+auto B_smem_layout = make_layout(B_blocktile, LayoutRight{});
+__shared__ float A_smem[cosize_v<decltype(A_smem_layout)>];
+__shared__ float B_smem[cosize_v<decltype(B_smem_layout)>];
+Tensor sA = make_tensor(make_smem_ptr(A_smem), A_smem_layout);
+Tensor sB = make_tensor(make_smem_ptr(B_smem), B_smem_layout);
 ```
-
-First we declare `mA, mB, mC` Tensors backed by data buffers A/B/C, and layouts specified by the next 2 arguments giving it's shape and stride. In this case the stride is row major since the last mode has a stride of 1 (mode means corresponding positions in the shape:stride pair). Next we declare `sA, sB` Tensors which will hold the blocktiles in shared memory. This time they are backed by smem pointers, and we specify the layout as a single argument created via make_layout.
+First we declare the layout of our IO tensors with the correct shape and `LayoutRight{}` which denotes row major in cute (`make_stride(K, 1)` would be equivalent for A for example).
+Then we declare `mA, mB, mC` as Tensors backed by data buffers A/B/C, and layouts specified by the next argument.
+Next we declare `sA, sB` as Tensors which will hold the blocktiles in smem when we load them from gmem.
+Note `cosize_v<LayoutT>` which at compile time evaluates to the codomain size of the layout typed by `LayoutT`.
+Since a layout is just a function, its codomain size is equivalent to the size of a buffer such that any offset that the layout could possibly produce will never out-of-bounds that buffer.
 
 Now let's look at that last part of our CuTe snippet.
 
 ```cpp
-// global tiles
-Tensor gA = local_tile(mA, A_tiler, make_coord(blockIdx.y, _)); // (BM, BK, k)
-Tensor gB = local_tile(mB, B_tiler, make_coord(_, blockIdx.x)); // (BK, BN, k)
-Tensor gC = local_tile(mC, C_tiler, make_coord(blockIdx.y, blockIdx.x)); // (BM, BN)
+// blocktiles in gmem
+auto A_blocktile = make_shape(BM, BK);
+auto B_blocktile = make_shape(BK, BN);
+auto C_blocktile = make_shape(BM, BN);
+Tensor gA = local_tile(mA, A_blocktile, make_coord(blockIdx.y, _)); // (BM, BK, k)
+Tensor gB = local_tile(mB, B_blocktile, make_coord(_, blockIdx.x)); // (BK, BN, k)
+Tensor gC = local_tile(mC, C_blocktile, make_coord(blockIdx.y, blockIdx.x)); // (BM, BN)
 ```
 
-This is where we determine what blocktiles this block actually needs to read. Remember, Simon's kernel achieves this by advancing the A/B/C pointers to the start of the correct blocktile row/col and then incrementing them. With CuTe we don't need to do that manually, we get a nice utility `local_tile` for pulling the part of A/B/C that this block needs to see. This is the CuTe idiom again, declare useful layouts on data and use them to pull this thread/block/warp's workload with the handy utilities.
-The local*tile signature looks something like this: `local_tile(tensor, shape, coordinate)`. The function will tile the `tensor` into chunks of shape `shape` and let you yank out one of those tiles (elaboration: local_tile results in some data shaped like this: `((tile_w, tile_h), (rest_w, rest_h))` and the coord indexes into the second "rest" mode, TODO: add vis).
+This is where we determine what blocktiles this block actually needs to read.
+Simon's kernel achieves this by advancing the A/B/C pointers to first blocktile the block need to read (and then incrementing the points in the loop).
+With CuTe we don't need to do that manually, we get a nice utility `local_tile` for pulling the part of A/B/C that this block needs to see.
+This is the CuTe idiom, declare useful layouts on data and use them to pull this thread/block/warp's workload with the handy utilities.
+
+The `local_tile` signature looks something like this: `local_tile(tensor, shape, coordinate)`.
+The function will divide the `tensor` into tiles of shape `shape` and let you yank out one of those tiles.
+Formally, `local_tile` results in some data shaped like this: `((tile_w, tile_h), (rest_w, rest_h))` and the coord indexes into the second "rest" mode, TODO: add vis).
+
 For C, we use `make_coord(blockIdx.y, blockIdx.x)` to grab the output blocktile this block should compute. For A/B we use `*` in the cordinate to grab all blocktiles along that row/col which we will need to calculate the one output tile. This results in a 3D shape for A/B where the first 2 dimensions represent the shape of one blocktile, and the last dimension represents the number of blocktiles along K. The resulting tensor shapes are mentioned in the comments.
 
 Great, so we've achieved everything our reference kernel does so far. Let's see the next snippet from the reference kernel.
@@ -141,7 +241,62 @@ Great, so we've achieved everything our reference kernel does so far. Let's see 
 
 Here's what is looks like with CuTe. In CuTe we actually do a little more up front work, rather than doing complex indexing later which will become clear as we see the main loops of each kernel.
 
-<CodePair pair={codePairs.threadWork} />
+<CodePair>
+  <Fragment slot="left">
+    ```cpp
+    // calculating the indices that this thread will load into SMEM
+    const uint innerRowA = threadIdx.x / BK;
+    const uint innerColA = threadIdx.x % BK;
+    // calculates the number of rows of As that are being loaded in a single step
+    // by a single block
+    const uint strideA = numThreadsBlocktile / BK;
+    const uint innerRowB = threadIdx.x / BN;
+    const uint innerColB = threadIdx.x % BN;
+    // for both As and Bs we want each load to span the full column-width, for
+    // better GMEM coalescing (as opposed to spanning full row-width and iterating
+    // across columns)
+    const uint strideB = numThreadsBlocktile / BN;
+
+    // allocate thread-local cache for results in registerfile
+    float threadResults[TM * TN] = {0.0};
+    // register caches for As and Bs
+    float regM[TM] = {0.0};
+    float regN[TN] = {0.0};
+    ```
+  </Fragment>
+  <Fragment slot="right">
+    ```cpp
+    // part of gA each thread loads to sA
+    Tensor gA_to_r = local_partition(gA, A_thread_layout, threadIdx.x);
+    Tensor sA_to_w = local_partition(sA, A_thread_layout, threadIdx.x);
+
+    // part of gB each thread loads to sB
+    Tensor gB_to_r = local_partition(gB, B_thread_layout, threadIdx.x);
+    Tensor sB_to_w = local_partition(sB, B_thread_layout, threadIdx.x);
+
+    // part of sA, sB each thread reads for computation
+    auto thread_row_C = threadIdx.x / (BN / TN);
+    auto thread_col_C = threadIdx.x % (BN / TN);
+    auto A_col_shape = make_shape(TM, 1);
+    auto B_row_shape = make_shape(1, TN);
+    Tensor sA_to_r = local_tile(
+        sA, A_col_shape, make_coord(thread_row_C, _)); // (TM, 1, BK)
+    Tensor sB_to_r = local_tile(
+        sB, B_row_shape, make_coord(_, thread_col_C)); // (1, TN, BK)
+
+    // part of gC each thread writes results
+    Tensor gC_to_w = local_tile(
+        gC, shape(C_thread_layout),
+        make_coord(thread_row_C, thread_col_C)); // (TM, TN)
+
+    // rmem
+    Tensor thread_results = make_tensor_like(gC_to_w);
+    clear(thread_results);
+    Tensor tmp_A = make_tensor_like<float>(make_layout(make_shape(TM)));
+    Tensor tmp_B = make_tensor_like<float>(make_layout(make_shape(TN)));
+    ```
+  </Fragment>
+</CodePair>
 
 Again at a high level we achieve the same thing:
 
@@ -209,7 +364,93 @@ Here it is from our reference kernel. Conceptually this does:
 4. repeat 2-3 BK times, resulting in the matmul for one blocktile done.
 5. repeat 1-4 sliding blocktiles along K.
 
-<CodePair pair={codePairs.hotLoop} />
+<CodePair>
+  <Fragment slot="left">
+    ```cpp
+    // outer-most loop over block tiles
+    for (uint bkIdx = 0; bkIdx < K; bkIdx += BK) {
+        // populate the SMEM caches
+        for (uint loadOffset = 0; loadOffset < BM; loadOffset += strideA) {
+            As[(innerRowA + loadOffset) * BK + innerColA] =
+                A[(innerRowA + loadOffset) * K + innerColA];
+        }
+        for (uint loadOffset = 0; loadOffset < BK; loadOffset += strideB) {
+            Bs[(innerRowB + loadOffset) * BN + innerColB] =
+                B[(innerRowB + loadOffset) * N + innerColB];
+        }
+        __syncthreads();
+
+        // advance blocktile
+        A += BK;     // move BK columns to right
+        B += BK * N; // move BK rows down
+
+        // calculate per-thread results
+        for (uint dotIdx = 0; dotIdx < BK; ++dotIdx) {
+            // block into registers
+            for (uint i = 0; i < TM; ++i) {
+                regM[i] = As[(threadRow * TM + i) * BK + dotIdx];
+            }
+            for (uint i = 0; i < TN; ++i) {
+                regN[i] = Bs[dotIdx * BN + threadCol * TN + i];
+            }
+            for (uint resIdxM = 0; resIdxM < TM; ++resIdxM) {
+                for (uint resIdxN = 0; resIdxN < TN; ++resIdxN) {
+                    threadResults[resIdxM * TN + resIdxN] +=
+                    regM[resIdxM] * regN[resIdxN];
+                }
+            }
+        }
+        __syncthreads();
+    }
+    ```
+  </Fragment>
+  <Fragment slot="right">
+    ```cpp
+    auto max_tile_idx = shape<2>(gA);
+    for (int tile_idx = 0; tile_idx < max_tile_idx; tile_idx++) {
+        // load tiles
+        Tensor gA_tile = gA_to_r(_, _, tile_idx);
+        CUTE_UNROLL
+        for (int i = 0; i < size(gA_tile); i++) {
+            sA_to_w(i) = gA_tile(i);
+        }
+        Tensor gB_tile = gB_to_r(_, _, tile_idx);
+        CUTE_UNROLL
+        for (int i = 0; i < size(gB_tile); i++) {
+            sB_to_w(i) = gB_tile(i);
+        }
+
+        __syncthreads();
+
+        // compute partial results for this tile
+        CUTE_UNROLL
+        for (int dot_idx = 0; dot_idx < shape<2>(sA_to_r); dot_idx++) {
+            // load row/col from smem to rmem
+            Tensor sA_col = sA_to_r(_, _, dot_idx);
+            CUTE_UNROLL
+            for (int i = 0; i < size(tmp_A); i++) {
+                tmp_A(i) = sA_col(i);
+            }
+            Tensor sB_row = sB_to_r(_, _, dot_idx);
+            CUTE_UNROLL
+            for (int i = 0; i < size(tmp_B); i++) {
+                tmp_B(i) = sB_row(i);
+            }
+
+            // outer product
+            CUTE_UNROLL
+            for (int i = 0; i < shape<0>(thread_results); i++) {
+                CUTE_UNROLL
+                for (int j = 0; j < shape<1>(thread_results); j++) {
+                    thread_results(i, j) += tmp_A(i) * tmp_B(j);
+                }
+            }
+        }
+        __syncthreads();
+    }
+    ```
+  </Fragment>
+</CodePair>
 
 A few things to take note of:
 
@@ -264,7 +505,33 @@ Simon's kernel:
 
 Cute:
 
-<CodePair pair={codePairs.writeback} />
+<CodePair>
+  <Fragment slot="left">
+    ```cpp
+    // write out the results
+    for (uint resIdxM = 0; resIdxM < TM; ++resIdxM) {
+        for (uint resIdxN = 0; resIdxN < TN; ++resIdxN) {
+            C[(threadRow * TM + resIdxM) * N + threadCol * TN + resIdxN] =
+                alpha * threadResults[resIdxM * TN + resIdxN] +
+                beta * C[(threadRow * TM + resIdxM) * N + threadCol * TN + resIdxN];
+        }
+    }
+    ```
+  </Fragment>
+  <Fragment slot="right">
+    ```cpp
+    // write results back to gmem
+    CUTE_UNROLL
+    for (int i = 0; i < shape<0>(thread_results); i++) {
+        CUTE_UNROLL
+        for (int j = 0; j < shape<1>(thread_results); j++) {
+            gC_to_w(i, j) = alpha * thread_results(i, j)
+                           + beta * gC_to_w(i, j);
+        }
+    }
+    ```
+  </Fragment>
+</CodePair>
 
 Again, much nicer indexing courtesy of the up front work we did defining layouts. Instead of indexing directly into C, we index into the chunk of C that this thread should handle according to our layout `gC_to_w`. Recalling how `gC_to_w` was defined we can see how it is ultimately equivalent to the indexing expression from Simon's kernel.
 
@@ -289,3 +556,5 @@ the <green> these adds </green>.
 ## Conclusion (for now)
 
 I'm releasing these blogposts as a multipart series to hold myself accountable, rather then trying to write one huge post and kicking the can down the road. Next post I'll be diving in to some of the more optimized kernels in Simon's article. Implementing Simon's kernel 6 (the vectorized loads kernel), we will dig into some of the library internals to see how the `copy` macro automatically handles vectorization when possible. Implementing kernel 7 (warp tiling) we will see more features of cute including advanced copying and gain a deeper understanding of the framework by attempting to write the exact same access/computation patterns as Simon's kernel with CuTe idioms.
+
+With CuTe, we can use these objects to extract the portions of our inputs and outputs and each thread will read and write to. You will see that overarching theme again and again: CuTe gives us a powerful language to describe shapes, layouts, and access patterns along with an ergenomic set of utilies to extract a given thread's workload from that description. Fundamentally, that's all we really need to write matmuls.
