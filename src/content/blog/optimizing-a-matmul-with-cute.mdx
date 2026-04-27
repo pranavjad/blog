@@ -5,6 +5,7 @@ date: "2026-04-26"
 ---
 
 import MatmulTilingViz from "../../components/MatmulTilingViz.astro";
+import LocalTileViz from "../../components/LocalTileViz.astro";
 import CodePair from "../../components/CodePair.astro";
 
 # Optimizing a MatMul with CuTe (Part 1)
@@ -232,7 +233,9 @@ The `local_tile` signature looks something like this: `local_tile(tensor, shape,
 The function will divide the `tensor` into tiles of shape `shape` and let you yank out one of those tiles.
 Formally, `local_tile` results in some data shaped like this: `((tile_w, tile_h), (rest_w, rest_h))` and the coord indexes into the second "rest" mode, TODO: add vis).
 
-For C, we use `make_coord(blockIdx.y, blockIdx.x)` to grab the output blocktile this block should compute. For A/B we use `*` in the cordinate to grab all blocktiles along that row/col which we will need to calculate the one output tile. This results in a 3D shape for A/B where the first 2 dimensions represent the shape of one blocktile, and the last dimension represents the number of blocktiles along K. The resulting tensor shapes are mentioned in the comments.
+<LocalTileViz />
+
+For C, we use `make_coord(blockIdx.y, blockIdx.x)` to grab the output blocktile this block should compute. For A/B we use `_` in the cordinate to grab all blocktiles along that row/col which we will need to calculate the one output tile. This results in a 3D shape for A/B where the first 2 dimensions represent the shape of one blocktile, and the last dimension represents the number of blocktiles along K. The resulting tensor shapes are mentioned in the comments.
 
 Great, so we've achieved everything our reference kernel does so far. Let's see the next snippet from the reference kernel.
 

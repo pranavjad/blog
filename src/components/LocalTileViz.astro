@@ -1,0 +1,219 @@
+---
+const TENSOR_DIM = 64;
+const TILE_DIM = 8;
+const MATRIX_SIZE = 160;
+const TILE_COUNT = TENSOR_DIM / TILE_DIM;
+const TILE_SIZE = MATRIX_SIZE / TILE_COUNT;
+const PAD_LEFT = 32;
+const PAD_TOP = 24;
+const PAD_RIGHT = 12;
+const PAD_BOTTOM = 32;
+const SVG_WIDTH = MATRIX_SIZE + PAD_LEFT + PAD_RIGHT;
+const SVG_HEIGHT = MATRIX_SIZE + PAD_TOP + PAD_BOTTOM;
+
+const tiles = Array.from({ length: TILE_COUNT * TILE_COUNT }, (_, index) => ({
+  row: Math.floor(index / TILE_COUNT),
+  col: index % TILE_COUNT,
+}));
+
+const FEATURED_ROW = 2;
+const FEATURED_COL = 5;
+---
+
+<figure
+  class="local-tile-viz"
+  data-tile-size={TILE_SIZE}
+  data-featured-row={FEATURED_ROW}
+  data-featured-col={FEATURED_COL}
+>
+  <svg
+    class="local-tile-panel"
+    width={SVG_WIDTH}
+    height={SVG_HEIGHT}
+    viewBox={`0 0 ${SVG_WIDTH} ${SVG_HEIGHT}`}
+    role="img"
+    aria-label="local_tile visualization"
+    aria-describedby="local-tile-viz-desc"
+  >
+    <desc id="local-tile-viz-desc">
+      Hover a tile to see the make_coord arguments for that coordinate.
+    </desc>
+
+    <defs>
+      <pattern
+        id="local-tile-grid"
+        width={TILE_SIZE}
+        height={TILE_SIZE}
+        patternUnits="userSpaceOnUse"
+      >
+        <path d={`M ${TILE_SIZE} 0 L 0 0 0 ${TILE_SIZE}`}></path>
+      </pattern>
+    </defs>
+
+    <g class="matrix" transform={`translate(${PAD_LEFT} ${PAD_TOP})`}>
+      <rect class="matrix-fill" width={MATRIX_SIZE} height={MATRIX_SIZE}></rect>
+      <rect
+        class="matrix-grid"
+        width={MATRIX_SIZE}
+        height={MATRIX_SIZE}></rect>
+      {
+        tiles.map((tile) => (
+          <rect
+            class="tile-hitbox"
+            data-tile-row={tile.row}
+            data-tile-col={tile.col}
+            x={tile.col * TILE_SIZE}
+            y={tile.row * TILE_SIZE}
+            width={TILE_SIZE}
+            height={TILE_SIZE}
+          />
+        ))
+      }
+      <rect class="tile-selected" width={TILE_SIZE} height={TILE_SIZE}></rect>
+      <rect class="matrix-border" width={MATRIX_SIZE} height={MATRIX_SIZE}
+      ></rect>
+      <text class="matrix-label" x="7" y="14">tensor</text>
+      <text class="axis-label" x={MATRIX_SIZE / 2} y={MATRIX_SIZE + 18}
+        >64</text
+      >
+      <text class="axis-label vertical" x="-18" y={MATRIX_SIZE / 2}>64</text>
+    </g>
+  </svg>
+
+  <div class="call-text">
+    <span>local_tile(tensor, make_shape(8, 8), make_coord(</span><span
+      class="call-coord">2</span
+    ><span>, </span><span class="call-coord">5</span><span>))</span>
+  </div>
+</figure>
+
+<script>
+  const figures = document.querySelectorAll(".local-tile-viz");
+
+  figures.forEach((figure) => {
+    const tileSize = Number((figure as HTMLElement).dataset.tileSize);
+    const featuredRow = Number(
+      (figure as HTMLElement).dataset.featuredRow,
+    );
+    const featuredCol = Number(
+      (figure as HTMLElement).dataset.featuredCol,
+    );
+
+    const selected = figure.querySelector(".tile-selected");
+    const coords = figure.querySelectorAll(".call-coord");
+
+    function update(row: number, col: number) {
+      selected?.setAttribute("x", String(col * tileSize));
+      selected?.setAttribute("y", String(row * tileSize));
+      if (coords[0]) coords[0].textContent = String(row);
+      if (coords[1]) coords[1].textContent = String(col);
+    }
+
+    figure
+      .querySelectorAll<HTMLElement>("[data-tile-row][data-tile-col]")
+      .forEach((tile) => {
+        tile.addEventListener("pointerenter", () => {
+          update(
+            Number(tile.dataset.tileRow),
+            Number(tile.dataset.tileCol),
+          );
+        });
+        tile.addEventListener("focus", () => {
+          update(
+            Number(tile.dataset.tileRow),
+            Number(tile.dataset.tileCol),
+          );
+        });
+      });
+
+    update(featuredRow, featuredCol);
+  });
+</script>
+
+<style>
+  .local-tile-viz {
+    --viz-ink: color-mix(in oklab, var(--foreground) 80%, transparent);
+    --viz-grid: color-mix(in oklab, var(--foreground) 20%, transparent);
+    --viz-fill: color-mix(in oklab, var(--muted) 72%, transparent);
+    --viz-block: oklch(0.72 0.18 65);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+    margin: 2rem 0;
+  }
+
+  .local-tile-panel {
+    display: block;
+    max-width: 100%;
+    height: auto;
+  }
+
+  .matrix-fill {
+    fill: var(--viz-fill);
+  }
+
+  .matrix-grid {
+    fill: url("#local-tile-grid");
+  }
+
+  #local-tile-grid path {
+    fill: none;
+    stroke: var(--viz-grid);
+    stroke-width: 0.7;
+  }
+
+  .matrix-border {
+    fill: none;
+    stroke: var(--viz-ink);
+    stroke-width: 2;
+  }
+
+  .matrix-label {
+    fill: var(--foreground);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 700;
+  }
+
+  .axis-label {
+    fill: var(--muted-foreground);
+    font-family: var(--font-mono);
+    font-size: 9px;
+    text-anchor: middle;
+  }
+
+  .vertical {
+    transform-box: fill-box;
+    transform-origin: center;
+    rotate: -90deg;
+  }
+
+  .tile-hitbox {
+    fill: transparent;
+    cursor: crosshair;
+  }
+
+  .tile-hitbox:hover {
+    fill: oklch(0.72 0.18 65 / 0.18);
+  }
+
+  .tile-selected {
+    fill: oklch(0.72 0.18 65 / 0.32);
+    stroke: var(--viz-block);
+    stroke-width: 2;
+    pointer-events: none;
+  }
+
+  .call-text {
+    color: var(--foreground);
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+    text-align: center;
+  }
+
+  .call-coord {
+    color: var(--viz-block);
+    font-weight: 700;
+  }
+</style>
