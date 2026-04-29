@@ -48,7 +48,7 @@ Memory access pattern
 | Unit of parallelism | Responsibility                                                                                    |
 | ------------------- | ------------------------------------------------------------------------------------------------- |
 | block               | Each block loads blocktiles from A/B from global memory (gmem) to a shared memory buffer (smem) |
-| thread              | Each thread loads threadtile slices from A/B blocktiles from gmem to register memory (rmem)       |
+| thread              | Each thread loads threadtile slices from blocktiles from smem to register memory (rmem)       |
 
 1. Threads cooperatively load A, B <span style={{color: "oklch(0.72 0.18 65)"}}>blocktiles</span> from gmem --> smem.
 2. Each thread loads the <span style={{color: "oklch(0.68 0.19 230)"}}>threadtile</span> slice from the A/B <span style={{color: "oklch(0.72 0.18 65)"}}>blocktiles</span> from smem --> rmem.
@@ -137,7 +137,7 @@ First, the reference kernel
   </Fragment>
 </CodePair>
 
-Here's what it looks like with CuTe. A few things to note:
+A few things to note about the CuTe version:
 
 1. Less indexing variables like `cRow` or `threadCol` in CuTe. Instead of indexing via complex expressions involving these variables, we defer that calculation to a Layout on a Tensor.
 2. We create a Tensor for every object we want to work with ie. blocktiles, the smem space for the blocktiles, later the threadtiles, etc.
@@ -215,7 +215,8 @@ Tensor sB = make_tensor(make_smem_ptr(B_smem), B_smem_layout);
 ```
 First we declare the layout of our IO tensors with the shapes you'd expect and a stride of `LayoutRight{}` which denotes row major in cute (`make_stride(K, 1)` would be equivalent for A for example).
 Then we declare `mA, mB, mC` as Tensors backed by data buffers A/B/C, and layouts specified by the next argument.
-Next we declare `sA, sB` as Tensors which will hold the blocktiles in smem when we load them from gmem.
+Next we declare our smem layouts with the shape of our blocktiles (since the blocktiles will be staged here) and a row major stride.
+Finally we declare `sA, sB` as our smem Tensors, combining the layout with a shared buffer.
 Note `cosize_v<LayoutT>` which at compile time evaluates to the codomain size of the layout typed by `LayoutT`.
 Since a layout is just a function, its codomain size is equivalent to the size of a buffer such that any offset that the layout could possibly produce will be in bounds for that buffer size.
 
@@ -242,14 +243,14 @@ Formally, `local_tile` results in some data shaped like this: `((tile_w, tile_h)
 
 <LocalTileViz />
 
-For C, we use `make_coord(blockIdx.y, blockIdx.x)` to grab the output blocktile this block should compute. For A/B we use `_` in the coordinate to grab all blocktiles along that row/col which we will need to calculate the one output tile. This results in a 3D shape for A/B where the first 2 dimensions represent the shape of one blocktile, and the last dimension represents the number of blocktiles along K. The resulting tensor shapes are mentioned in the comments.
+For C, we use `make_coord(blockIdx.y, blockIdx.x)` to grab the output blocktile this block should compute. For A/B we use `_` in the coordinate to grab all blocktiles along the K dimension, which will be reduced over to calculate the output blocktile.
+This results in a 3D shape for A/B where the first 2 dimensions represent the shape of one blocktile, and the last dimension represents the number of blocktiles along K. The resulting tensor shapes are mentioned in the comments.
 
 Great, so we've achieved everything our reference kernel does so far. Let's see the next snippet from the reference kernel.
 
 1. calculate each thread's share of the blocktile it should load from gmem to smem
 2. declare register memory for storing computation results, and for staging parts of the threadtiles for computation.
 
-In CuTe we actually do a little more up front work rather than doing complex indexing later.
 
 <CodePair>
   <Fragment slot="left">
@@ -340,7 +341,7 @@ But in the snippet we pass `LayoutRight{}` so the mapping becomes row major, tha
 
 Now that we understand `local_partition`, it is clear what this code does. For `gA`, and `sA` it tiles the tensors into tiles with size equal to the number of threads (64 in this case), and gives each thread an element in each of those tiles. So looping over `gA_to_r` for example would yield all elements that a given thread is responsible for loading. We will see that this ends up with a much cleaner loop definition later on, whereas in the reference kernel we have to deal with a lot more manual bookkeeping such as `strideA` and `strideB` to know how much we can load at once, and how to advance the iterator, etc.
 
-One more thing to note. The shape of `gA` is 3D as we saw before, the first 2D being the blocktile shape and the last dimension being the number of blocktiles in a row. `local_partition` only operates on the first two modes and preserves the last meaning that the shape of `gA_to_r` is also 3D.
+One more thing to note. The shape of `gA` is 3D as we saw before, the first 2D being the blocktile shape and the last dimension being the number of blocktiles along K. `local_partition` only operates on the first two modes and preserves the last meaning that the shape of `gA_to_r` is also 3D.
 
 Next up we create tensors for the parts of smem we load to rmem for computation.
 
@@ -363,6 +364,8 @@ Additionally we grab the tile of `gC` the thread should write its results to.
 Below is a visualization of the local_tile calls happening:
 
 <ThreadTileViz />
+
+The coordinate for local_tile is supplied by `thread_row_C` and `thread_col_C` which are the coordinates of the threadtile for the current thread.
 
 Finally declaring the register memory in CuTe looks a little different but is functionally the same.
 
