@@ -7,6 +7,7 @@ date: "2026-04-26"
 import MatmulTilingViz from "../../components/MatmulTilingViz.astro";
 import LocalTileViz from "../../components/LocalTileViz.astro";
 import LocalPartitionViz from "../../components/LocalPartitionViz.astro";
+import ThreadTileViz from "../../components/ThreadTileViz.astro";
 import CodePair from "../../components/CodePair.astro";
 
 # Optimizing a MatMul with CuTe (Part 1)
@@ -60,6 +61,7 @@ The following visualization shows the hierarchy and access patterns of this matm
 
 Now, let's implement it using CuTe! I will build up the implementation snippet by snippet with Simon's reference kernel on the left, and the CuTe version on the right.
 
+## Preamble
 First, the reference kernel
 1. defines some bookkeeping variables used for indexing calculations later
 2. allocates shared memory to load the blocktiles into
@@ -135,8 +137,9 @@ First, the reference kernel
 Here's what it looks like with CuTe. A few things to note:
 
 1. Less indexing variables like `cRow` or `threadCol` in CuTe. Instead of indexing via complex expressions involving these variables, we defer that calculation to a Layout on a Tensor.
-2. We create a tensor for every object we want to work with ie. blocktiles, the smem space for the blocktiles, later the threadtiles, etc.
-### Tensor and Layout
+2. We create a Tensor for every object we want to work with ie. blocktiles, the smem space for the blocktiles, later the threadtiles, etc.
+Anything we index or copy should be a Tensor for the most part to take advantage of CuTe's utilities.
+### Layout and Tensor
 
 We've just seen two foundational CuTe concepts. First is the Layout.
 A Layout is a pair of (shape, stride) where shape and stride are n-tuples, often denoted as `shape:stride`.
@@ -144,7 +147,7 @@ A Layout is a pair of (shape, stride) where shape and stride are n-tuples, often
 Fundamantally a Layout is just a function that maps an ND logical coordinate to a 1D offset in a buffer ie. `(0, 1) -> 1`.
 The Shape defines the dimensions of the Layout's coordinate system.
 The Stride defines how many elements you have to skip in the buffer to get to the next element along that dimension. 
-For example, a row major 2x4 matrix would have the layout (2, 4):(4, 1). Again, that layout defines a function which you can call:
+For example, a row major 2x4 matrix would have the layout `(2, 4):(4, 1)`. Again, that layout defines a function which you can call:
 
 ```cpp
 // layout - (2, 4):(4, 1)
@@ -161,7 +164,7 @@ Vanilla:
 // declare buffer, we treat it as (M, N) row major
 int buffer[M * N];
 
-// index buffer
+// index buffer[row, col]
 int data = buffer[row * N + col];
 ```
 With a layout:
@@ -170,7 +173,7 @@ With a layout:
 int buffer[M * N];
 auto layout = make_layout(make_shape(M, N), make_stride(N, 1));
 
-// index buffer
+// index buffer[row, col]
 int data = buffer[layout(row, col)];
 ```
 With a tensor:
@@ -183,7 +186,7 @@ auto tensor = make_tensor(
   make_layout(make_shape(M, N), make_stride(N, 1))
 );
 
-// index buffer
+// index buffer[row, col]
 int data = tensor(row, col);
 ```
 This is a simple example but we will see with more complex indexing, having the Layout instead of calculating offsets manually is very nice.
@@ -207,11 +210,11 @@ __shared__ float B_smem[cosize_v<decltype(B_smem_layout)>];
 Tensor sA = make_tensor(make_smem_ptr(A_smem), A_smem_layout);
 Tensor sB = make_tensor(make_smem_ptr(B_smem), B_smem_layout);
 ```
-First we declare the layout of our IO tensors with the correct shape and `LayoutRight{}` which denotes row major in cute (`make_stride(K, 1)` would be equivalent for A for example).
+First we declare the layout of our IO tensors with the shapes you'd expect and a stride of `LayoutRight{}` which denotes row major in cute (`make_stride(K, 1)` would be equivalent for A for example).
 Then we declare `mA, mB, mC` as Tensors backed by data buffers A/B/C, and layouts specified by the next argument.
 Next we declare `sA, sB` as Tensors which will hold the blocktiles in smem when we load them from gmem.
 Note `cosize_v<LayoutT>` which at compile time evaluates to the codomain size of the layout typed by `LayoutT`.
-Since a layout is just a function, its codomain size is equivalent to the size of a buffer such that any offset that the layout could possibly produce will never out-of-bounds that buffer.
+Since a layout is just a function, its codomain size is equivalent to the size of a buffer such that any offset that the layout could possibly produce will be in bounds for that buffer size.
 
 Now let's look at that last part of our CuTe snippet.
 
@@ -226,13 +229,13 @@ Tensor gC = local_tile(mC, C_blocktile, make_coord(blockIdx.y, blockIdx.x)); // 
 ```
 
 This is where we determine what blocktiles this block actually needs to read.
-Simon's kernel achieves this by advancing the A/B/C pointers to first blocktile the block need to read (and then incrementing the points in the loop).
+Simon's kernel achieves this by advancing the A/B/C pointers via a manual offset calculation to the start of the first blocktile the block need to read (and then incrementing the points in the loop to get the next blocktiles).
 With CuTe we don't need to do that manually, we get a nice utility `local_tile` for pulling the part of A/B/C that this block needs to see.
-This is the CuTe idiom, declare useful layouts on data and use them to pull this thread/block/warp's workload with the handy utilities.
+This is idiomatic CuTe, declare useful layouts on data and use them to pull this thread/block/warp's workload with the handy utilities.
 
 The `local_tile` signature looks something like this: `local_tile(tensor, shape, coordinate)`.
 The function will divide the `tensor` into tiles of shape `shape` and let you yank out one of those tiles.
-Formally, `local_tile` results in some data shaped like this: `((tile_w, tile_h), (rest_w, rest_h))` and the coord indexes into the second "rest" mode, TODO: add vis).
+Formally, `local_tile` results in some data shaped like this: `((tile_w, tile_h), (rest_w, rest_h))` and `coordinate` indexes into the second "rest" mode.
 
 <LocalTileViz />
 
@@ -243,7 +246,7 @@ Great, so we've achieved everything our reference kernel does so far. Let's see 
 1. calculate each thread's share of the blocktile it should load from gmem to smem
 2. declare register memory for storing computation results, and for staging parts of the threadtiles for computation.
 
-In CuTe we actually do a little more up front work rather than doing complex indexing later which will become clear as we see the main loops of each kernel.
+In CuTe we actually do a little more up front work rather than doing complex indexing later.
 
 <CodePair>
   <Fragment slot="left">
@@ -306,7 +309,7 @@ We achieve the 2 points above, but additionally we do the following up front, wh
 
 1. Calculate which parts of the smem blocktiles the thread needs to read in order to calculate it's threadtile.
 2. Calculate which parts of global memory this thread should write it's results to.
-   In Simon's kernel we also do this, it just shows up as an indexing calculation later on in the hot loop, like `sA[calculation]`. Since CuTe is about avoiding these manual indexing calculations, and doing everything with layouts we do this work up front.
+   In Simon's kernel we also do this, it just shows up as an indexing calculation later on in the hot loop, like `sA[calculation]`.
 
 Let's take a closer look.
 
@@ -323,16 +326,16 @@ Tensor gB_to_r = local_partition(gB, B_thread_layout, threadIdx.x);
 Tensor sB_to_w = local_partition(sB, B_thread_layout, threadIdx.x);>
 ```
 
-The `local_partition` function is similar to the `local_tile` function, but rather than letting you pick out a tile by coordinate, it lets you pick out an element of each tile. Formally, `local_partition(tensor, layout, index)` tiles `tensor` according to `shape(layout)` producing a tensor of shape `((tile_w, tile_h), (rest_w, rest_h))` as we saw before. However instead of indexing into mode 1 which would be grabbing one tile, it indexes into mode 0. For example `local_partition(tensor, layout, 0)` grabs the first element from each tile giving you a tensor of shape `(rest_w, rest_h)`.
+The `local_partition` function is similar to the `local_tile` function, but rather than letting you pick out a tile by coordinate, it lets you pick out an element of each tile. Formally, `local_partition(tensor, layout, index)` tiles `tensor` according to `shape(layout)` producing a tensor of shape `((tile_w, tile_h), (rest_w, rest_h))`. However instead of indexing into mode 1 which would be grabbing one tile, it indexes into mode 0. For example `local_partition(tensor, layout, 0)` grabs the first element from each tile giving you a tensor of shape `(rest_w, rest_h)`.
 
 <LocalPartitionViz />
 
 You might have noticed we pass `local_partition` a layout rather than just a shape for the tile.
 This is because `local_partition` uses the stride of the layout to determine how to map the 1D coord we pass in to the natural ND dimensions of the tensor.
 By default it is col major like the visualization above.
-But we pass `LayoutRight{}` so the mapping becomes row major, that way consecutive thread will load the same row from A and consecutive cols from B leading to coalesced gmem loads.
+But in the snippet we pass `LayoutRight{}` so the mapping becomes row major, that way consecutive thread will load the same row from A and consecutive colulmns from B leading to coalesced gmem access.
 
-Now that we understand `local_partition`, it is clear what this code does. For gA, and sA it tiles the tensors into tiles with size equal to the number of threads (64 in this case), and gives each thread an element in each of those tiles. So looping over `gA_to_r` for example would yield all elements that a given thread is responsible for loading. We will see that this ends up with a much cleaner loop definition later on, whereas in the reference kernel we have to deal with a lot more manual bookkeeping such as `strideA` and `strideB` to know much we can load at once, and how to advance the iterator, etc.
+Now that we understand `local_partition`, it is clear what this code does. For `gA`, and `sA` it tiles the tensors into tiles with size equal to the number of threads (64 in this case), and gives each thread an element in each of those tiles. So looping over `gA_to_r` for example would yield all elements that a given thread is responsible for loading. We will see that this ends up with a much cleaner loop definition later on, whereas in the reference kernel we have to deal with a lot more manual bookkeeping such as `strideA` and `strideB` to know much we can load at once, and how to advance the iterator, etc.
 
 One more thing to note. The shape of `gA` is 3D as we saw before, the first 2D being the blocktile shape and the last dimension being the number of blocktiles in a row. `local_tile` only operates on the first two modes and preserves the last meaning that the shape of `gA_to_r` is also 3D.
 
@@ -351,7 +354,12 @@ Tensor sB_to_r = local_tile(sB, B_row_shape, make_coord(_, thread_col_C)); // (1
 Tensor gC_to_w = local_tile(gC, shape(C_thread_layout), make_coord(thread_row_C, thread_col_C)); // (TM, TN)
 ```
 
-Now since we want to grab contiguous blocks, we're back to using local tile (TODO: insert vis here). Here we grab the slices of rows/cols from A/B that each thread needs to calculate its threadtile. Additionally we grab the tile of gC the thread should write it's results to.
+Now since we want to grab contiguous blocks, we're back to using local tile.
+Here we grab the slices of rows/cols from A/B that each thread needs to calculate its threadtile.
+Additionally we grab the tile of gC the thread should write it's results to.
+Below is a visualization of the local_tile calls happening:
+
+<ThreadTileViz />
 
 Finally declaring the register memory in CuTe looks a little different but is functionally the same.
 
@@ -368,8 +376,8 @@ Great, we have the entire preamble of our reference kernel implemented in CuTe. 
 Here it is from our reference kernel. Conceptually this does:
 
 1. load blocktile gmem -> smem
-2. load chunk of blocktile this thread needs for it's calculations from smem -> rmem
-3. acculumate one outer product into rmem
+2. load threadtile slices from A/B from smem -> rmem
+3. acculumate one outer product into `thread_results` in rmem
 4. repeat 2-3 BK times, resulting in the matmul for one blocktile done.
 5. repeat 1-4 sliding blocktiles along K.
 
@@ -463,9 +471,15 @@ Here it is from our reference kernel. Conceptually this does:
 
 A few things to take note of:
 
-- tensors are indexed via `tensor(i)` rather than `tensor[i]` as you may be used to seeing.
-- loop bounds are determined by the shape of tensors. For example, the outer loop `dot_idx` ranges from `0..shape<2>(gA)`. In this case `shape(gA) = (BM, BK, k)` where `k = K / BK` or the number of blocktiles along a row of gA. Then we select the correct tile by indexing into the last mode of `gA_to_r`. Simon's kernel achieves this keeping points to the start of the right tile, and advancing the pointers throughout the loop.
-- indexing is trivial since everything is handled by tensors and layouts we defined earlier. In the entire CuTe snippet you will not see a single indexing calculation inside the parenthesis, unlike the reference kernel. Let's zoom in on one loop:
+- Tensors are indexed via `tensor(i)` rather than `tensor[i]` as you may be used to seeing.
+- Loop bounds are determined by the shape of tensors. For example, the outer loop `dot_idx` ranges from `0..shape<2>(gA)`. 
+In this case `shape(gA) = (BM, BK, k)` where `k = K / BK` or the number of blocktiles along a row of A. Therefore `shape<2>(gA) = k` or the number of blocktiles.
+So the outer loop iterates through the blocktile index as we expect. Since `gA_to_r` is just a local_partition of `gA`, it also 3 dimensions and we index into the last one to grab the correct blocktile.
+
+Simon's kernel achieves this keeping points to the start of the right tile, and advancing the pointers throughout the loop.
+- Indexing is trivial since everything is handled by tensors and layouts we defined earlier.
+In the entire CuTe snippet you will not see a single indexing calculation.
+Let's zoom in on one loop:
 
 ```cpp
 Tensor gA_tile = gA_to_r(_, _, tile_idx);
@@ -477,12 +491,13 @@ for (int i = 0; i < size(gA_tile); i++) {
 
 Notice rather than complex indexing expressions, we've defined two tensors `sA_to_w` and `gA_tile` which represent the source and destination of our copy and they are of equal size. So all that's left to do is iterate over the size of the tensor and issue each copy instruction. Above, I wrote it explicitly but in CuTe there is actually a macro for this:
 
-```
+```cpp
 Tensor gA_tile = gA_to_r(_, _, tile_idx);
 copy(gA_tile, sA_to_w);
 ```
 
 which would expand to the code above, and even do things like vectorize loads if possible (more on this later).
+Things are so easy now because beforehand we did the heavy lifting of defining layouts for the src/dst and using local_tile/local_partition to divvy them up so each thread has a chunk of the copying to do.
 
 We see the same pattern again when loading smem -> rmem
 
@@ -510,9 +525,6 @@ The indexing expression has two parts
 And finally, the outer product loop is basically the same but we get some nicer indexing ergenomics from CuTe again.
 
 Now we arrive at the last snippet: storing the results back to gmem.
-Simon's kernel:
-
-Cute:
 
 <CodePair>
   <Fragment slot="left">
@@ -542,7 +554,8 @@ Cute:
   </Fragment>
 </CodePair>
 
-Again, much nicer indexing courtesy of the up front work we did defining layouts. Instead of indexing directly into C, we index into the chunk of C that this thread should handle according to our layout `gC_to_w`. Recalling how `gC_to_w` was defined we can see how it is ultimately equivalent to the indexing expression from Simon's kernel.
+Again, much nicer indexing courtesy of the up front work we did defining layouts.
+Instead of indexing directly into `C`, we index into the local tile of `C` that this thread got from the local_tile that produced `gC_to_w`. Recalling how `gC_to_w` was defined we can see how it is ultimately equivalent to the indexing expression from Simon's kernel.
 
 ```cpp
 Tensor gC = local_tile(mC, C_tiler, make_coord(blockIdx.y, blockIdx.x)); // (BM, BN)

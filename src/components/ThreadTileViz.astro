@@ -1,0 +1,565 @@
+---
+const TENSOR_DIM_M = 64;
+const TENSOR_DIM_N = 64;
+const TENSOR_DIM_K = 8;
+const TM = 8;
+const TN = 8;
+const CELL_SIZE = 4;
+
+const sA_W = TENSOR_DIM_K * CELL_SIZE; // 32
+const sA_H = TENSOR_DIM_M * CELL_SIZE; // 256
+const sB_W = TENSOR_DIM_N * CELL_SIZE; // 256
+const sB_H = TENSOR_DIM_K * CELL_SIZE; // 32
+const gC_W = TENSOR_DIM_N * CELL_SIZE; // 256
+const gC_H = TENSOR_DIM_M * CELL_SIZE; // 256
+const TILE_W = TN * CELL_SIZE; // 32
+const TILE_H = TM * CELL_SIZE; // 32
+const TILE_ROWS = TENSOR_DIM_M / TM; // 8
+const TILE_COLS = TENSOR_DIM_N / TN; // 8
+
+const GAP = 16;
+
+const SVG_WIDTH = 520;
+const layoutWidth = sA_W + GAP + gC_W;
+const sA_X = (SVG_WIDTH - layoutWidth) / 2;
+const sB_X = sA_X + sA_W + GAP;
+const gC_X = sB_X;
+const sB_Y = 28;
+const sA_Y = sB_Y + sB_H + GAP;
+const gC_Y = sA_Y;
+
+const matricesBottom = gC_Y + gC_H;
+const TEXT_BLOCK_TOP = matricesBottom + 36;
+const LINE_HEIGHT = 22;
+const SWATCH_SIZE = 12;
+const SWATCH_GAP = 8;
+
+const SVG_HEIGHT = TEXT_BLOCK_TOP + LINE_HEIGHT * 3 + 8;
+
+const FEATURED_ROW = 2;
+const FEATURED_COL = 5;
+
+const sABands = Array.from({ length: TILE_ROWS }, (_, i) => i);
+const sBBands = Array.from({ length: TILE_COLS }, (_, i) => i);
+const gCTiles = Array.from({ length: TILE_ROWS * TILE_COLS }, (_, i) => ({
+  row: Math.floor(i / TILE_COLS),
+  col: i % TILE_COLS,
+}));
+---
+
+<figure
+  class="thread-tile-viz"
+  data-cell-size={CELL_SIZE}
+  data-tile-w={TILE_W}
+  data-tile-h={TILE_H}
+  data-sa-x={sA_X}
+  data-sa-y={sA_Y}
+  data-sa-w={sA_W}
+  data-sb-x={sB_X}
+  data-sb-y={sB_Y}
+  data-sb-h={sB_H}
+  data-gc-x={gC_X}
+  data-gc-y={gC_Y}
+  data-text-line1-y={TEXT_BLOCK_TOP + LINE_HEIGHT * 0.5}
+  data-text-line2-y={TEXT_BLOCK_TOP + LINE_HEIGHT * 1.5}
+  data-text-line3-y={TEXT_BLOCK_TOP + LINE_HEIGHT * 2.5}
+  data-svg-width={SVG_WIDTH}
+  data-swatch-size={SWATCH_SIZE}
+  data-swatch-gap={SWATCH_GAP}
+  data-featured-row={FEATURED_ROW}
+  data-featured-col={FEATURED_COL}
+>
+  <svg
+    class="thread-tile-panel"
+    width={SVG_WIDTH}
+    height={SVG_HEIGHT}
+    viewBox={`0 0 ${SVG_WIDTH} ${SVG_HEIGHT}`}
+    role="img"
+    aria-label="threadtile local_tile visualization"
+  >
+    <defs>
+      <pattern
+        id="ttv-cell-grid"
+        width={CELL_SIZE}
+        height={CELL_SIZE}
+        patternUnits="userSpaceOnUse"
+      >
+        <path d={`M ${CELL_SIZE} 0 L 0 0 0 ${CELL_SIZE}`}></path>
+      </pattern>
+      <pattern
+        id="ttv-tile-grid-h"
+        width={TILE_W}
+        height={TILE_H}
+        patternUnits="userSpaceOnUse"
+      >
+        <path d={`M ${TILE_W} 0 L 0 0 0 ${TILE_H}`}></path>
+      </pattern>
+    </defs>
+
+    <!-- sA: column on the left, banded into 8 horizontal bands of height TM -->
+    <g class="matrix sa" transform={`translate(${sA_X} ${sA_Y})`}>
+      <rect class="matrix-fill" width={sA_W} height={sA_H}></rect>
+      <rect class="cell-grid" width={sA_W} height={sA_H}></rect>
+      <rect
+        class="sa-highlight"
+        width={sA_W}
+        height={TILE_H}
+        x="0"
+        y="0"></rect>
+      <g class="sa-slice-lines">
+        {
+          Array.from({ length: TENSOR_DIM_K - 1 }, (_, i) => i + 1).map((k) => (
+            <line
+              class="slice-line slice-line-sa"
+              x1={k * CELL_SIZE}
+              x2={k * CELL_SIZE}
+              y1="0"
+              y2={TILE_H}
+            />
+          ))
+        }
+      </g>
+      <rect class="tile-grid" width={sA_W} height={sA_H}></rect>
+      {
+        sABands.map((row) => (
+          <rect
+            class="sa-hitbox"
+            data-band-row={row}
+            x="0"
+            y={row * TILE_H}
+            width={sA_W}
+            height={TILE_H}
+          />
+        ))
+      }
+      <rect class="matrix-border" width={sA_W} height={sA_H}></rect>
+      <text class="matrix-label" x="5" y="12">sA</text>
+    </g>
+
+    <!-- sB: row on top, banded into 8 vertical bands of width TN -->
+    <g class="matrix sb" transform={`translate(${sB_X} ${sB_Y})`}>
+      <rect class="matrix-fill" width={sB_W} height={sB_H}></rect>
+      <rect class="cell-grid" width={sB_W} height={sB_H}></rect>
+      <rect
+        class="sb-highlight"
+        width={TILE_W}
+        height={sB_H}
+        x="0"
+        y="0"></rect>
+      <g class="sb-slice-lines">
+        {
+          Array.from({ length: TENSOR_DIM_K - 1 }, (_, i) => i + 1).map((k) => (
+            <line
+              class="slice-line slice-line-sb"
+              x1="0"
+              x2={TILE_W}
+              y1={k * CELL_SIZE}
+              y2={k * CELL_SIZE}
+            />
+          ))
+        }
+      </g>
+      <rect class="tile-grid" width={sB_W} height={sB_H}></rect>
+      {
+        sBBands.map((col) => (
+          <rect
+            class="sb-hitbox"
+            data-band-col={col}
+            x={col * TILE_W}
+            y="0"
+            width={TILE_W}
+            height={sB_H}
+          />
+        ))
+      }
+      <rect class="matrix-border" width={sB_W} height={sB_H}></rect>
+      <text class="matrix-label" x="5" y="12">sB</text>
+    </g>
+
+    <!-- gC: 64x64 with 8x8 tiles -->
+    <g class="matrix gc" transform={`translate(${gC_X} ${gC_Y})`}>
+      <rect class="matrix-fill" width={gC_W} height={gC_H}></rect>
+      <rect class="cell-grid" width={gC_W} height={gC_H}></rect>
+      <rect
+        class="gc-highlight"
+        width={TILE_W}
+        height={TILE_H}
+        x="0"
+        y="0"></rect>
+      <rect class="tile-grid" width={gC_W} height={gC_H}></rect>
+      {
+        gCTiles.map((tile) => (
+          <rect
+            class="gc-hitbox"
+            data-tile-row={tile.row}
+            data-tile-col={tile.col}
+            x={tile.col * TILE_W}
+            y={tile.row * TILE_H}
+            width={TILE_W}
+            height={TILE_H}
+          />
+        ))
+      }
+      <rect class="matrix-border" width={gC_W} height={gC_H}></rect>
+      <text class="matrix-label" x="5" y="12">gC</text>
+    </g>
+
+    <!-- Connectors -->
+    <g class="connectors-sa">
+      {
+        Array.from({ length: TENSOR_DIM_K }, (_, i) => i).map((k) => (
+          <line class="connector connector-sa" data-slice={k} />
+        ))
+      }
+    </g>
+    <g class="connectors-sb">
+      {
+        Array.from({ length: TENSOR_DIM_K }, (_, i) => i).map((k) => (
+          <line class="connector connector-sb" data-slice={k} />
+        ))
+      }
+    </g>
+    <line class="connector connector-gc"></line>
+
+    <!-- Code text lines -->
+    <rect class="call-square call-square-sa" width={SWATCH_SIZE} height={SWATCH_SIZE}></rect>
+    <text class="call-text call-text-sa" dominant-baseline="middle">
+      <tspan> = local_tile(sA, make_shape(8, 1), make_coord(</tspan
+      ><tspan class="row-label">2</tspan><tspan>, _))</tspan>
+    </text>
+
+    <rect class="call-square call-square-sb" width={SWATCH_SIZE} height={SWATCH_SIZE}></rect>
+    <text class="call-text call-text-sb" dominant-baseline="middle">
+      <tspan> = local_tile(sB, make_shape(1, 8), make_coord(_, </tspan
+      ><tspan class="col-label">5</tspan><tspan>))</tspan>
+    </text>
+
+    <rect class="call-square call-square-gc" width={SWATCH_SIZE} height={SWATCH_SIZE}></rect>
+    <text class="call-text call-text-gc" dominant-baseline="middle">
+      <tspan> = local_tile(gC, make_shape(8, 8), make_coord(</tspan
+      ><tspan class="row-label">2</tspan><tspan>, </tspan
+      ><tspan class="col-label">5</tspan><tspan>))</tspan>
+    </text>
+  </svg>
+</figure>
+
+<script>
+  const figures = document.querySelectorAll(".thread-tile-viz");
+
+  figures.forEach((figure) => {
+    const el = figure as HTMLElement;
+    const tileW = Number(el.dataset.tileW);
+    const tileH = Number(el.dataset.tileH);
+    const saX = Number(el.dataset.saX);
+    const saY = Number(el.dataset.saY);
+    const saW = Number(el.dataset.saW);
+    const sbX = Number(el.dataset.sbX);
+    const sbY = Number(el.dataset.sbY);
+    const sbH = Number(el.dataset.sbH);
+    const gcX = Number(el.dataset.gcX);
+    const gcY = Number(el.dataset.gcY);
+    const textY = [
+      Number(el.dataset.textLine1Y),
+      Number(el.dataset.textLine2Y),
+      Number(el.dataset.textLine3Y),
+    ];
+    const svgWidth = Number(el.dataset.svgWidth);
+    const swatchSize = Number(el.dataset.swatchSize);
+    const swatchGap = Number(el.dataset.swatchGap);
+    const featuredRow = Number(el.dataset.featuredRow);
+    const featuredCol = Number(el.dataset.featuredCol);
+
+    const saHi = figure.querySelector<SVGRectElement>(".sa-highlight");
+    const sbHi = figure.querySelector<SVGRectElement>(".sb-highlight");
+    const gcHi = figure.querySelector<SVGRectElement>(".gc-highlight");
+    const saSliceLines = figure.querySelector<SVGGElement>(".sa-slice-lines");
+    const sbSliceLines = figure.querySelector<SVGGElement>(".sb-slice-lines");
+
+    const swatches = [
+      figure.querySelector<SVGRectElement>(".call-square-sa"),
+      figure.querySelector<SVGRectElement>(".call-square-sb"),
+      figure.querySelector<SVGRectElement>(".call-square-gc"),
+    ];
+    const texts = [
+      figure.querySelector<SVGTextElement>(".call-text-sa"),
+      figure.querySelector<SVGTextElement>(".call-text-sb"),
+      figure.querySelector<SVGTextElement>(".call-text-gc"),
+    ];
+    const saConnectors = figure.querySelectorAll<SVGLineElement>(
+      ".connector-sa",
+    );
+    const sbConnectors = figure.querySelectorAll<SVGLineElement>(
+      ".connector-sb",
+    );
+    const gcConnector = figure.querySelector<SVGLineElement>(".connector-gc");
+    const cellSize = 4;
+
+    const rowLabels = figure.querySelectorAll(".row-label");
+    const colLabels = figure.querySelectorAll(".col-label");
+
+    let state = { row: featuredRow, col: featuredCol };
+
+    function layoutLine(idx: number) {
+      const text = texts[idx];
+      const swatch = swatches[idx];
+      if (!text || !swatch) return null;
+      const bbox = text.getBBox();
+      const total = swatchSize + swatchGap + bbox.width;
+      const startX = (svgWidth - total) / 2;
+      const sx = startX;
+      const sy = textY[idx] - swatchSize / 2;
+      swatch.setAttribute("x", String(sx));
+      swatch.setAttribute("y", String(sy));
+      text.setAttribute("x", String(startX + swatchSize + swatchGap));
+      text.setAttribute("y", String(textY[idx]));
+      return { cx: sx + swatchSize / 2, cy: sy + swatchSize / 2 };
+    }
+
+    function update(row: number, col: number) {
+      state = { row, col };
+
+      saHi?.setAttribute("y", String(row * tileH));
+      sbHi?.setAttribute("x", String(col * tileW));
+      gcHi?.setAttribute("x", String(col * tileW));
+      gcHi?.setAttribute("y", String(row * tileH));
+      saSliceLines?.setAttribute(
+        "transform",
+        `translate(0 ${row * tileH})`,
+      );
+      sbSliceLines?.setAttribute(
+        "transform",
+        `translate(${col * tileW} 0)`,
+      );
+
+      rowLabels.forEach((n) => (n.textContent = String(row)));
+      colLabels.forEach((n) => (n.textContent = String(col)));
+
+      const saSwatch = layoutLine(0);
+      const sbSwatch = layoutLine(1);
+      const gcSwatch = layoutLine(2);
+
+      const saBandY = saY + row * tileH + tileH / 2;
+      saConnectors.forEach((line) => {
+        const k = Number(line.dataset.slice);
+        const cx = saX + k * cellSize + cellSize / 2;
+        if (!saSwatch) return;
+        line.setAttribute("x1", String(cx));
+        line.setAttribute("y1", String(saBandY));
+        line.setAttribute("x2", String(saSwatch.cx));
+        line.setAttribute("y2", String(saSwatch.cy));
+      });
+
+      const sbBandX = sbX + col * tileW + tileW / 2;
+      sbConnectors.forEach((line) => {
+        const k = Number(line.dataset.slice);
+        const cy = sbY + k * cellSize + cellSize / 2;
+        if (!sbSwatch) return;
+        line.setAttribute("x1", String(sbBandX));
+        line.setAttribute("y1", String(cy));
+        line.setAttribute("x2", String(sbSwatch.cx));
+        line.setAttribute("y2", String(sbSwatch.cy));
+      });
+
+      const gcCx = gcX + col * tileW + tileW / 2;
+      const gcCy = gcY + row * tileH + tileH / 2;
+      if (gcSwatch && gcConnector) {
+        gcConnector.setAttribute("x1", String(gcCx));
+        gcConnector.setAttribute("y1", String(gcCy));
+        gcConnector.setAttribute("x2", String(gcSwatch.cx));
+        gcConnector.setAttribute("y2", String(gcSwatch.cy));
+      }
+    }
+
+    figure
+      .querySelectorAll<HTMLElement>("[data-tile-row][data-tile-col]")
+      .forEach((tile) => {
+        tile.addEventListener("pointerenter", () => {
+          update(
+            Number(tile.dataset.tileRow),
+            Number(tile.dataset.tileCol),
+          );
+        });
+      });
+    figure
+      .querySelectorAll<HTMLElement>(".sa-hitbox")
+      .forEach((band) => {
+        band.addEventListener("pointerenter", () => {
+          update(Number(band.dataset.bandRow), state.col);
+        });
+      });
+    figure
+      .querySelectorAll<HTMLElement>(".sb-hitbox")
+      .forEach((band) => {
+        band.addEventListener("pointerenter", () => {
+          update(state.row, Number(band.dataset.bandCol));
+        });
+      });
+
+    update(featuredRow, featuredCol);
+  });
+</script>
+
+<style>
+  .thread-tile-viz {
+    --viz-ink: color-mix(in oklab, var(--foreground) 80%, transparent);
+    --viz-tile-grid: color-mix(in oklab, var(--foreground) 36%, transparent);
+    --viz-cell-grid: color-mix(in oklab, var(--foreground) 10%, transparent);
+    --viz-fill: color-mix(in oklab, var(--muted) 72%, transparent);
+    --viz-sa: oklch(0.72 0.18 65);
+    --viz-sb: oklch(0.68 0.19 230);
+    --viz-gc: oklch(0.62 0.20 145);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin: 2rem 0;
+  }
+
+  .thread-tile-panel {
+    display: block;
+    max-width: 100%;
+    height: auto;
+  }
+
+  .matrix-fill {
+    fill: var(--viz-fill);
+  }
+
+  .cell-grid {
+    fill: url("#ttv-cell-grid");
+  }
+
+  .tile-grid {
+    fill: url("#ttv-tile-grid-h");
+    pointer-events: none;
+  }
+
+  #ttv-cell-grid path {
+    fill: none;
+    stroke: var(--viz-cell-grid);
+    stroke-width: 0.4;
+  }
+
+  #ttv-tile-grid-h path {
+    fill: none;
+    stroke: var(--viz-tile-grid);
+    stroke-width: 0.9;
+  }
+
+  .matrix-border {
+    fill: none;
+    stroke: var(--viz-ink);
+    stroke-width: 2;
+    pointer-events: none;
+  }
+
+  .matrix-label {
+    fill: var(--foreground);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 700;
+    pointer-events: none;
+  }
+
+  .sa-hitbox,
+  .sb-hitbox,
+  .gc-hitbox {
+    fill: transparent;
+    cursor: crosshair;
+  }
+
+  .sa-hitbox:hover {
+    fill: oklch(0.72 0.18 65 / 0.12);
+  }
+  .sb-hitbox:hover {
+    fill: oklch(0.68 0.19 230 / 0.12);
+  }
+  .gc-hitbox:hover {
+    fill: oklch(0.62 0.20 145 / 0.12);
+  }
+
+  .sa-highlight {
+    fill: oklch(0.72 0.18 65 / 0.32);
+    stroke: var(--viz-sa);
+    stroke-width: 1.5;
+    pointer-events: none;
+  }
+  .sb-highlight {
+    fill: oklch(0.68 0.19 230 / 0.32);
+    stroke: var(--viz-sb);
+    stroke-width: 1.5;
+    pointer-events: none;
+  }
+  .gc-highlight {
+    fill: oklch(0.62 0.20 145 / 0.32);
+    stroke: var(--viz-gc);
+    stroke-width: 1.5;
+    pointer-events: none;
+  }
+
+  .call-square-sa {
+    fill: oklch(0.72 0.18 65 / 0.32);
+    stroke: var(--viz-sa);
+    stroke-width: 1.5;
+    pointer-events: none;
+  }
+  .call-square-sb {
+    fill: oklch(0.68 0.19 230 / 0.32);
+    stroke: var(--viz-sb);
+    stroke-width: 1.5;
+    pointer-events: none;
+  }
+  .call-square-gc {
+    fill: oklch(0.62 0.20 145 / 0.32);
+    stroke: var(--viz-gc);
+    stroke-width: 1.5;
+    pointer-events: none;
+  }
+
+  .call-text {
+    fill: var(--foreground);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    pointer-events: none;
+  }
+
+  .call-text-sa .row-label {
+    fill: var(--viz-sa);
+    font-weight: 700;
+  }
+  .call-text-sb .col-label {
+    fill: var(--viz-sb);
+    font-weight: 700;
+  }
+  .call-text-gc .row-label,
+  .call-text-gc .col-label {
+    fill: var(--viz-gc);
+    font-weight: 700;
+  }
+
+  .connector {
+    pointer-events: none;
+  }
+  .connector-sa {
+    stroke: oklch(0.72 0.18 65 / 0.28);
+    stroke-width: 0.7;
+  }
+  .connector-sb {
+    stroke: oklch(0.68 0.19 230 / 0.28);
+    stroke-width: 0.7;
+  }
+  .connector-gc {
+    stroke: oklch(0.62 0.20 145 / 0.55);
+    stroke-width: 1;
+  }
+
+  .slice-line-sa {
+    stroke: var(--viz-sa);
+    stroke-width: 0.6;
+    pointer-events: none;
+  }
+  .slice-line-sb {
+    stroke: var(--viz-sb);
+    stroke-width: 0.6;
+    pointer-events: none;
+  }
+</style>
