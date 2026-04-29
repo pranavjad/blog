@@ -66,9 +66,9 @@ The following visualization shows the hierarchy and access patterns of this matm
 Now, let's implement it using CuTe! I will build up the implementation snippet by snippet with Simon's reference kernel on the left, and the CuTe version on the right.
 
 First, the reference kernel
-1. defines some bookkeeping variables used for indexing calculations later
-2. allocates shared memory to load the blocktiles into
-3. calculates which blocktile this block handles
+1. Defines some bookkeeping variables used for indexing calculations later.
+2. Allocates shared memory to load the blocktiles into.
+3. Calculates which blocktile this block handles.
 
 
 <CodePair>
@@ -248,8 +248,8 @@ This results in a 3D shape for A/B where the first 2 dimensions represent the sh
 
 Great, so we've achieved everything our reference kernel does so far. Let's see the next snippet from the reference kernel.
 
-1. calculate each thread's share of the blocktile it should load from gmem to smem
-2. declare register memory for storing computation results, and for staging parts of the threadtiles for computation.
+1. Calculate each thread's share of the blocktile it should load from gmem to smem.
+2. Declare register memory for storing computation results, and for staging parts of the threadtiles for computation.
 
 
 <CodePair>
@@ -381,11 +381,11 @@ The `make_tensor_like` function declares a buffer in rmem and then makes a tenso
 Great, we have the entire preamble of our reference kernel implemented in CuTe. Now we can look at the interesting part, the hot loop.
 Here it is from our reference kernel. Conceptually this does:
 
-1. load blocktile gmem -> smem
-2. load threadtile slices from A/B from smem -> rmem
-3. accumulate one outer product into `thread_results` in rmem
-4. repeat 2-3 BK times, resulting in the matmul for one blocktile done.
-5. repeat 1-4 sliding blocktiles along K.
+1. Load blocktile gmem -> smem.
+2. Load threadtile slices from A/B from smem -> rmem.
+3. Accumulate one outer product into `thread_results` in rmem.
+4. Repeat 2-3 BK times, resulting in the matmul for one blocktile done.
+5. Repeat 1-4 sliding blocktiles along K.
 
 <CodePair>
   <Fragment slot="left">
@@ -525,8 +525,8 @@ for (uint i = 0; i < TM; ++i) {
 
 The indexing expression has two parts
 
-- `(threadRow * TM + i) * BK`: this selects the correct row from `sA` which increments with `i` since we are moving down a col of sA. In CuTe this is handled in the `local_tile` when tiling sA.
-- `+ dotIdx`: this selects the col we are copying. `sA_to_r` is of shape `(TM, 1, BK)`, so indexing into the last mode will select one thread col.
+- `(threadRow * TM + i) * BK`: This selects the correct row from `sA` which increments with `i` since we are moving down a col of sA. In CuTe this is handled in the `local_tile` when tiling sA.
+- `+ dotIdx`: This selects the col we are copying. `sA_to_r` is of shape `(TM, 1, BK)`, so indexing into the last mode will select one thread col.
 
 And finally, the outer product loop is basically the same but we get some nicer indexing ergonomics from CuTe again.
 
