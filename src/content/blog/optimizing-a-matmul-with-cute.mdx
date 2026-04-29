@@ -57,11 +57,13 @@ Memory access pattern
 6. Write results from rmem --> gmem.
 
 The following visualization shows the hierarchy and access patterns of this matmul.
+
 <MatmulTilingViz />
+
+*hint: mouse over the tensors to see how the workload is divided*
 
 Now, let's implement it using CuTe! I will build up the implementation snippet by snippet with Simon's reference kernel on the left, and the CuTe version on the right.
 
-## Preamble
 First, the reference kernel
 1. defines some bookkeeping variables used for indexing calculations later
 2. allocates shared memory to load the blocktiles into
@@ -567,16 +569,13 @@ First we created `gC` which is the (BM, BN) blocktile from `C` that this block n
 
 Then within `gC` we further tile into the threadtiles, to finally extract this thread's portion of the blocktile. In Simon's kernel that manifests as:
 
-```
-(<red>threadRow * TM</red> <green> + resIdxM </green>) * N + <red>threadCol * TN</red> <green> + resIdxN </green>
-```
+<pre><code>{"("}<span style={{color: "#c44e52"}}>threadRow * TM</span><span style={{color: "#55a868"}}> + resIdxM </span>{") * N + "}<span style={{color: "#c44e52"}}>threadCol * TN</span><span style={{color: "#55a868"}}> + resIdxN </span></code></pre>
 
-<red> these two multiplies </red> (color code in final article). Finally we loop
-over the threadtile with nice 2d indexing, which in Simon's kernel is handled by
-the <green> these adds </green>.
+<span style={{color: "#c44e52"}}>These two multiplies</span> select this thread's portion of the blocktile, this is what local_tile does for us. Finally we loop over the threadtile with nice 2d indexing, which in Simon's kernel is handled by the <span style={{color: "#55a868"}}>two adds</span>.
 
 ## Conclusion (for now)
 
-I'm releasing these blogposts as a multipart series to hold myself accountable, rather then trying to write one huge post and kicking the can down the road. Next post I'll be diving in to some of the more optimized kernels in Simon's article. Implementing Simon's kernel 6 (the vectorized loads kernel), we will dig into some of the library internals to see how the `copy` macro automatically handles vectorization when possible. Implementing kernel 7 (warp tiling) we will see more features of cute including advanced copying and gain a deeper understanding of the framework by attempting to write the exact same access/computation patterns as Simon's kernel with CuTe idioms.
+I'm releasing these blogposts as a multipart series. Next post I'll be diving in to some of the more optimized kernels in Simon's article. Implementing Simon's kernel 6 (the vectorized loads kernel), we will dig into some of the library internals to see how the `copy` macro automatically handles vectorization when possible. Implementing kernel 7 (warp tiling) we will see more features of cute including advanced copying and gain a deeper understanding of the framework by attempting to write the exact same access/computation patterns as Simon's kernel with CuTe idioms.
 
-With CuTe, we can use these objects to extract the portions of our inputs and outputs and each thread will read and write to. You will see that overarching theme again and again: CuTe gives us a powerful language to describe shapes, layouts, and access patterns along with an ergenomic set of utilies to extract a given thread's workload from that description. Fundamentally, that's all we really need to write matmuls.
+In this post we just scratched the surface. Even in the reference kernel, indexing patterns aren't too complex (it gets much worse with warp tiling) so CuTe might seem overkill.
+The main takeaway here is that CuTe gives us a powerful language to describe shapes, layouts, and access patterns along with an ergenomic set of utilies to extract a given thread's workload from that description. Fundamentally, that's all we need to write matmuls.
