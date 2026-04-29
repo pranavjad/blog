@@ -3,4 +3,4 @@
 
 export const SITE_TITLE = "Pranav Jadhav";
 export const SITE_DESCRIPTION = "Personal website and blog for Pranav Jadhav.";
-export const SITE_URL = "http://localhost:4321/";
+export const SITE_URL = "https://pranavjadhav.com";
