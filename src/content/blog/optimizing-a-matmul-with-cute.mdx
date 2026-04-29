@@ -384,7 +384,7 @@ Here it is from our reference kernel. Conceptually this does:
 1. Load blocktile gmem -> smem.
 2. Load threadtile slices from A/B from smem -> rmem.
 3. Accumulate one outer product into `thread_results` in rmem.
-4. Repeat 2-3 BK times, resulting in the matmul for one blocktile done.
+4. Repeat 2-3 BK times.
 5. Repeat 1-4 sliding blocktiles along K.
 
 <CodePair>
@@ -475,17 +475,12 @@ Here it is from our reference kernel. Conceptually this does:
   </Fragment>
 </CodePair>
 
-A few things to take note of:
+A few things to take note of in the CuTe snippet:
 
 - Tensors are indexed via `tensor(i)` rather than `tensor[i]` as you may be used to seeing.
-- Loop bounds are determined by the shape of tensors. For example, the outer loop `tile_idx` ranges from `0..shape<2>(gA)`. 
-In this case `shape(gA) = (BM, BK, k)` where `k = K / BK` or the number of blocktiles along a row of A. Therefore `shape<2>(gA) = k` or the number of blocktiles.
-So the outer loop iterates through the blocktile index as we expect. Since `gA_to_r` is just a `local_partition` of `gA`, it also has 3 dimensions and we index into the last one to grab the correct blocktile.
+- Loop bounds are determined by the shape of tensors. For example, the outer loop `tile_idx` ranges from `0..shape<2>(gA)`. In this case `shape(gA) = (BM, BK, k)` where `k = K / BK` or the number of blocktiles along a row of A. Therefore `shape<2>(gA) = k` or the number of blocktiles. So the outer loop iterates through the blocktile index as we expect. Since `gA_to_r` is just a `local_partition` of `gA`, it also has 3 dimensions and we index into the last one to grab the correct blocktile. Simon's kernel achieves this by keeping pointers to the start of the right tile, and advancing the pointers throughout the loop.
 
-Simon's kernel achieves this by keeping pointers to the start of the right tile, and advancing the pointers throughout the loop.
-- Indexing is trivial since everything is handled by tensors and layouts we defined earlier.
-In the entire CuTe snippet you will not see a single indexing calculation.
-Let's zoom in on one loop:
+- Indexing is trivial since everything is handled by tensors and layouts we defined earlier. In the entire CuTe snippet you will not see a single indexing calculation. Let's zoom in on one loop:
 
 ```cpp
 Tensor gA_tile = gA_to_r(_, _, tile_idx);
@@ -502,8 +497,8 @@ Tensor gA_tile = gA_to_r(_, _, tile_idx);
 copy(gA_tile, sA_to_w);
 ```
 
-which would expand to the code above, and even do things like vectorize loads if possible (more on this later).
-Things are so easy now because beforehand we did the heavy lifting of defining layouts for the src/dst and using local_tile/local_partition to divvy them up so each thread has a chunk of the copying to do.
+which would expand to the code above, and even do things like vectorize loads if possible (more on this in a future post).
+Things are so easy now because we already did the heavy lifting of defining layouts for the src/dst and using local_tile/local_partition to divvy them up so each thread has a chunk of the copying to do.
 
 We see the same pattern again when loading smem -> rmem
 
@@ -564,7 +559,7 @@ Again, much nicer indexing courtesy of the up front work we did defining layouts
 Instead of indexing directly into `C`, we index into the local tile of `C` that this thread got from the local_tile that produced `gC_to_w`. Recalling how `gC_to_w` was defined we can see how it is ultimately equivalent to the indexing expression from Simon's kernel.
 
 ```cpp
-Tensor gC = local_tile(mC, C_tiler, make_coord(blockIdx.y, blockIdx.x)); // (BM, BN)
+Tensor gC = local_tile(mC, C_blocktile, make_coord(blockIdx.y, blockIdx.x)); // (BM, BN)
 Tensor gC_to_w = local_tile(gC, shape(C_thread_layout), make_coord(thread_row_C, thread_col_C)); // (TM, TN)
 ```
 
@@ -579,7 +574,7 @@ Then within `gC` we further tile into the threadtiles, to finally extract this t
 
 ## Conclusion (for now)
 
-I'm releasing these blogposts as a multipart series. Next post I'll be diving in to some of the more optimized kernels in Simon's article. Implementing Simon's kernel 6 (the vectorized loads kernel), we will dig into some of the library internals to see how the `copy` macro automatically handles vectorization when possible. Implementing kernel 7 (warp tiling) we will see more features of cute including advanced copying and gain a deeper understanding of the framework by attempting to write the exact same access/computation patterns as Simon's kernel with CuTe idioms.
+I'm releasing these blogposts as a multipart series. Next post I'll be diving in to some of the more optimized kernels in Simon's article. Implementing Simon's kernel 6 (the vectorized loads kernel), we will dig into some of the library internals to see how the copy macro automatically handles vectorization when possible. Implementing kernel 7 (warp tiling) we will see more features of cute including advanced copying and gain a deeper understanding of the framework by attempting to write the exact same access/computation patterns as Simon's kernel with CuTe idioms.
 
 In this post we just scratched the surface. Even in the reference kernel, indexing patterns aren't too complex (it gets much worse with warp tiling) so CuTe might seem overkill.
 The main takeaway here is that CuTe gives us a powerful language to describe shapes, layouts, and access patterns along with an ergonomic set of utilities to extract a given thread's workload from that description. Fundamentally, that's all we need to write matmuls.
