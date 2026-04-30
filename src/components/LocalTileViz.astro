@@ -1,37 +1,95 @@
 ---
-const TENSOR_DIM = 64;
-const TILE_DIM = 8;
-const MATRIX_SIZE = 256;
-const TILE_COUNT = TENSOR_DIM / TILE_DIM;
-const TILE_SIZE = MATRIX_SIZE / TILE_COUNT;
-const CELL_SIZE = MATRIX_SIZE / TENSOR_DIM;
+const M = 256;
+const N = 256;
+const K = 64;
+const BM = 64;
+const BN = 64;
+const BK = 8;
+const CELL_SIZE = 1;
 
-const SVG_WIDTH = 500;
-const MATRIX_X = (SVG_WIDTH - MATRIX_SIZE) / 2;
-const MATRIX_Y = 24;
-const AXIS_BOTTOM_Y = MATRIX_Y + MATRIX_SIZE + 18;
-const TEXT_CENTER_Y = AXIS_BOTTOM_Y + 26;
-const SVG_HEIGHT = TEXT_CENTER_Y + 16;
+const mA_W = K * CELL_SIZE; // 64
+const mA_H = M * CELL_SIZE; // 256
+const mB_W = N * CELL_SIZE; // 256
+const mB_H = K * CELL_SIZE; // 64
+const mC_W = N * CELL_SIZE; // 256
+const mC_H = M * CELL_SIZE; // 256
 
+const A_BLOCK_W = BK * CELL_SIZE; // 8
+const A_BLOCK_H = BM * CELL_SIZE; // 64
+const B_BLOCK_W = BN * CELL_SIZE; // 64
+const B_BLOCK_H = BK * CELL_SIZE; // 8
+const C_BLOCK_W = BN * CELL_SIZE; // 64
+const C_BLOCK_H = BM * CELL_SIZE; // 64
+
+const C_BLOCK_ROWS = M / BM; // 4
+const C_BLOCK_COLS = N / BN; // 4
+const K_BLOCKS = K / BK; // 8
+
+const GAP = 16;
+const SVG_WIDTH = 720;
+const layoutWidth = mA_W + GAP + mC_W; // 64 + 16 + 256 = 336
+const mA_X = (SVG_WIDTH - layoutWidth) / 2;
+const mB_X = mA_X + mA_W + GAP;
+const mC_X = mB_X;
+const mB_Y = 28;
+const mA_Y = mB_Y + mB_H + GAP;
+const mC_Y = mA_Y;
+
+const matricesBottom = mC_Y + mC_H;
+const TEXT_BLOCK_TOP = matricesBottom + 36;
+const LINE_HEIGHT = 22;
 const SWATCH_SIZE = 12;
 const SWATCH_GAP = 8;
 
-const tiles = Array.from({ length: TILE_COUNT * TILE_COUNT }, (_, index) => ({
-  row: Math.floor(index / TILE_COUNT),
-  col: index % TILE_COUNT,
-}));
+const SVG_HEIGHT = TEXT_BLOCK_TOP + LINE_HEIGHT * 3 + 8;
 
-const FEATURED_ROW = 2;
-const FEATURED_COL = 5;
+const FEATURED_ROW = 1;
+const FEATURED_COL = 2;
+
+const aBlocks = Array.from(
+  { length: C_BLOCK_ROWS * K_BLOCKS },
+  (_, i) => ({
+    row: Math.floor(i / K_BLOCKS),
+    col: i % K_BLOCKS,
+  }),
+);
+const bBlocks = Array.from(
+  { length: K_BLOCKS * C_BLOCK_COLS },
+  (_, i) => ({
+    row: Math.floor(i / C_BLOCK_COLS),
+    col: i % C_BLOCK_COLS,
+  }),
+);
+const cBlocks = Array.from(
+  { length: C_BLOCK_ROWS * C_BLOCK_COLS },
+  (_, i) => ({
+    row: Math.floor(i / C_BLOCK_COLS),
+    col: i % C_BLOCK_COLS,
+  }),
+);
+const kRange = Array.from({ length: K_BLOCKS }, (_, i) => i);
 ---
 
 <figure
   class="local-tile-viz"
-  data-matrix-x={MATRIX_X}
-  data-matrix-y={MATRIX_Y}
-  data-tile-size={TILE_SIZE}
+  data-cell-size={CELL_SIZE}
+  data-a-block-w={A_BLOCK_W}
+  data-a-block-h={A_BLOCK_H}
+  data-b-block-w={B_BLOCK_W}
+  data-b-block-h={B_BLOCK_H}
+  data-c-block-w={C_BLOCK_W}
+  data-c-block-h={C_BLOCK_H}
+  data-k-blocks={K_BLOCKS}
+  data-ma-x={mA_X}
+  data-ma-y={mA_Y}
+  data-mb-x={mB_X}
+  data-mb-y={mB_Y}
+  data-mc-x={mC_X}
+  data-mc-y={mC_Y}
+  data-text-line1-y={TEXT_BLOCK_TOP + LINE_HEIGHT * 0.5}
+  data-text-line2-y={TEXT_BLOCK_TOP + LINE_HEIGHT * 1.5}
+  data-text-line3-y={TEXT_BLOCK_TOP + LINE_HEIGHT * 2.5}
   data-svg-width={SVG_WIDTH}
-  data-text-center-y={TEXT_CENTER_Y}
   data-swatch-size={SWATCH_SIZE}
   data-swatch-gap={SWATCH_GAP}
   data-featured-row={FEATURED_ROW}
@@ -43,75 +101,161 @@ const FEATURED_COL = 5;
     height={SVG_HEIGHT}
     viewBox={`0 0 ${SVG_WIDTH} ${SVG_HEIGHT}`}
     role="img"
-    aria-label="local_tile visualization"
+    aria-label="local_tile visualization for the 2D blocktiling matmul"
     aria-describedby="local-tile-viz-desc"
   >
     <desc id="local-tile-viz-desc">
-      Hover a tile to see the make_coord arguments for that coordinate.
+      Hover a blocktile in mC to set blockIdx.x / blockIdx.y. mA highlights the
+      whole row of K blocktiles selected by make_coord(blockIdx.y, _), mB
+      highlights the whole column of K blocktiles selected by make_coord(_,
+      blockIdx.x).
     </desc>
 
     <defs>
       <pattern
-        id="local-tile-tile-grid"
-        width={TILE_SIZE}
-        height={TILE_SIZE}
+        id="ltv-a-block-grid"
+        width={A_BLOCK_W}
+        height={A_BLOCK_H}
         patternUnits="userSpaceOnUse"
       >
-        <path d={`M ${TILE_SIZE} 0 L 0 0 0 ${TILE_SIZE}`}></path>
+        <path d={`M ${A_BLOCK_W} 0 L 0 0 0 ${A_BLOCK_H}`}></path>
       </pattern>
       <pattern
-        id="local-tile-cell-grid"
-        width={CELL_SIZE}
-        height={CELL_SIZE}
+        id="ltv-b-block-grid"
+        width={B_BLOCK_W}
+        height={B_BLOCK_H}
         patternUnits="userSpaceOnUse"
       >
-        <path d={`M ${CELL_SIZE} 0 L 0 0 0 ${CELL_SIZE}`}></path>
+        <path d={`M ${B_BLOCK_W} 0 L 0 0 0 ${B_BLOCK_H}`}></path>
+      </pattern>
+      <pattern
+        id="ltv-c-block-grid"
+        width={C_BLOCK_W}
+        height={C_BLOCK_H}
+        patternUnits="userSpaceOnUse"
+      >
+        <path d={`M ${C_BLOCK_W} 0 L 0 0 0 ${C_BLOCK_H}`}></path>
       </pattern>
     </defs>
 
-    <g class="matrix" transform={`translate(${MATRIX_X} ${MATRIX_Y})`}>
-      <rect class="matrix-fill" width={MATRIX_SIZE} height={MATRIX_SIZE}></rect>
+    <!-- mA: tall on the left, BM x BK blocktiles -->
+    <g class="matrix ma" transform={`translate(${mA_X} ${mA_Y})`}>
+      <rect class="matrix-fill" width={mA_W} height={mA_H}></rect>
       <rect
-        class="cell-grid"
-        width={MATRIX_SIZE}
-        height={MATRIX_SIZE}></rect>
-      <rect class="tile-selected" width={TILE_SIZE} height={TILE_SIZE}></rect>
-      <rect
-        class="tile-grid"
-        width={MATRIX_SIZE}
-        height={MATRIX_SIZE}></rect>
+        class="ma-highlight"
+        width={mA_W}
+        height={A_BLOCK_H}
+        x="0"
+        y="0"></rect>
+      <rect class="block-grid block-grid-a" width={mA_W} height={mA_H}></rect>
       {
-        tiles.map((tile) => (
+        aBlocks.map((b) => (
           <rect
-            class="tile-hitbox"
-            data-tile-row={tile.row}
-            data-tile-col={tile.col}
-            x={tile.col * TILE_SIZE}
-            y={tile.row * TILE_SIZE}
-            width={TILE_SIZE}
-            height={TILE_SIZE}
+            class="ma-hitbox"
+            data-block-row={b.row}
+            data-block-col={b.col}
+            x={b.col * A_BLOCK_W}
+            y={b.row * A_BLOCK_H}
+            width={A_BLOCK_W}
+            height={A_BLOCK_H}
           />
         ))
       }
-      <rect class="matrix-border" width={MATRIX_SIZE} height={MATRIX_SIZE}
-      ></rect>
-      <text class="matrix-label" x="7" y="14">tensor</text>
-      <text class="axis-label" x={MATRIX_SIZE / 2} y={MATRIX_SIZE + 18}
-        >64</text
-      >
-      <text class="axis-label vertical" x="-18" y={MATRIX_SIZE / 2}>64</text>
+      <rect class="matrix-border" width={mA_W} height={mA_H}></rect>
+      <text class="matrix-label" x="6" y="15">mA</text>
+      <text class="axis-label" x={mA_W / 2} y={mA_H + 14}>K = {K}</text>
+      <text class="axis-label vertical" x="-22" y={mA_H / 2}>M = {M}</text>
     </g>
 
-    <line class="connector"></line>
+    <!-- mB: wide on top, BK x BN blocktiles -->
+    <g class="matrix mb" transform={`translate(${mB_X} ${mB_Y})`}>
+      <rect class="matrix-fill" width={mB_W} height={mB_H}></rect>
+      <rect
+        class="mb-highlight"
+        width={B_BLOCK_W}
+        height={mB_H}
+        x="0"
+        y="0"></rect>
+      <rect class="block-grid block-grid-b" width={mB_W} height={mB_H}></rect>
+      {
+        bBlocks.map((b) => (
+          <rect
+            class="mb-hitbox"
+            data-block-row={b.row}
+            data-block-col={b.col}
+            x={b.col * B_BLOCK_W}
+            y={b.row * B_BLOCK_H}
+            width={B_BLOCK_W}
+            height={B_BLOCK_H}
+          />
+        ))
+      }
+      <rect class="matrix-border" width={mB_W} height={mB_H}></rect>
+      <text class="matrix-label" x="6" y="15">mB</text>
+      <text class="axis-label vertical mb-k-label" x="-22" y={mB_H / 2}
+        >K = {K}</text
+      >
+      <text class="axis-label" x={mB_W / 2} y={-12}>N = {N}</text>
+    </g>
 
+    <!-- mC: BM x BN blocktiles -->
+    <g class="matrix mc" transform={`translate(${mC_X} ${mC_Y})`}>
+      <rect class="matrix-fill" width={mC_W} height={mC_H}></rect>
+      <rect
+        class="mc-highlight"
+        width={C_BLOCK_W}
+        height={C_BLOCK_H}
+        x="0"
+        y="0"></rect>
+      <rect class="block-grid block-grid-c" width={mC_W} height={mC_H}></rect>
+      {
+        cBlocks.map((b) => (
+          <rect
+            class="mc-hitbox"
+            data-block-row={b.row}
+            data-block-col={b.col}
+            x={b.col * C_BLOCK_W}
+            y={b.row * C_BLOCK_H}
+            width={C_BLOCK_W}
+            height={C_BLOCK_H}
+          />
+        ))
+      }
+      <rect class="matrix-border" width={mC_W} height={mC_H}></rect>
+      <text class="matrix-label" x="6" y="15">mC</text>
+      <text class="axis-label" x={mC_W / 2} y={mC_H + 14}>N = {N}</text>
+    </g>
+
+    <!-- Code lines -->
     <rect
-      class="call-square"
+      class="call-square call-square-a"
       width={SWATCH_SIZE}
       height={SWATCH_SIZE}></rect>
-    <text class="call-text" dominant-baseline="middle">
-      <tspan> = local_tile(tensor, make_shape(8, 8), make_coord(</tspan><tspan
-        class="call-coord">2</tspan
-      ><tspan>, </tspan><tspan class="call-coord">5</tspan><tspan>))</tspan>
+    <text class="call-text call-text-a" dominant-baseline="middle">
+      <tspan>gA = local_tile(mA, (BM=64, BK=8), make_coord(</tspan
+      ><tspan class="row-label">1</tspan><tspan>, _))  </tspan
+      ><tspan class="comment">// (BM, BK, k) = (64, 8, 8)</tspan>
+    </text>
+
+    <rect
+      class="call-square call-square-b"
+      width={SWATCH_SIZE}
+      height={SWATCH_SIZE}></rect>
+    <text class="call-text call-text-b" dominant-baseline="middle">
+      <tspan>gB = local_tile(mB, (BK=8, BN=64), make_coord(_, </tspan
+      ><tspan class="col-label">2</tspan><tspan>))  </tspan
+      ><tspan class="comment">// (BK, BN, k) = (8, 64, 8)</tspan>
+    </text>
+
+    <rect
+      class="call-square call-square-c"
+      width={SWATCH_SIZE}
+      height={SWATCH_SIZE}></rect>
+    <text class="call-text call-text-c" dominant-baseline="middle">
+      <tspan>gC = local_tile(mC, (BM=64, BN=64), make_coord(</tspan
+      ><tspan class="row-label">1</tspan><tspan>, </tspan
+      ><tspan class="col-label">2</tspan><tspan>))  </tspan
+      ><tspan class="comment">// (BM, BN) = (64, 64)</tspan>
     </text>
   </svg>
 </figure>
@@ -121,73 +265,111 @@ const FEATURED_COL = 5;
 
   figures.forEach((figure) => {
     const el = figure as HTMLElement;
-    const matrixX = Number(el.dataset.matrixX);
-    const matrixY = Number(el.dataset.matrixY);
-    const tileSize = Number(el.dataset.tileSize);
+    const aBlockW = Number(el.dataset.aBlockW);
+    const aBlockH = Number(el.dataset.aBlockH);
+    const bBlockW = Number(el.dataset.bBlockW);
+    const bBlockH = Number(el.dataset.bBlockH);
+    const cBlockW = Number(el.dataset.cBlockW);
+    const cBlockH = Number(el.dataset.cBlockH);
+    const kBlocks = Number(el.dataset.kBlocks);
+    const textY = [
+      Number(el.dataset.textLine1Y),
+      Number(el.dataset.textLine2Y),
+      Number(el.dataset.textLine3Y),
+    ];
     const svgWidth = Number(el.dataset.svgWidth);
-    const textCenterY = Number(el.dataset.textCenterY);
     const swatchSize = Number(el.dataset.swatchSize);
     const swatchGap = Number(el.dataset.swatchGap);
     const featuredRow = Number(el.dataset.featuredRow);
     const featuredCol = Number(el.dataset.featuredCol);
 
-    const selected = figure.querySelector<SVGRectElement>(".tile-selected");
-    const swatch = figure.querySelector<SVGRectElement>(".call-square");
-    const text = figure.querySelector<SVGTextElement>(".call-text");
-    const connector = figure.querySelector<SVGLineElement>(".connector");
-    const coords = figure.querySelectorAll(".call-coord");
+    const maHi = figure.querySelector<SVGRectElement>(".ma-highlight");
+    const mbHi = figure.querySelector<SVGRectElement>(".mb-highlight");
+    const mcHi = figure.querySelector<SVGRectElement>(".mc-highlight");
 
-    function layout() {
-      if (!text || !swatch) return;
-      const bbox = text.getBBox();
-      const total = swatchSize + swatchGap + bbox.width;
+    const swatches = [
+      figure.querySelector<SVGRectElement>(".call-square-a"),
+      figure.querySelector<SVGRectElement>(".call-square-b"),
+      figure.querySelector<SVGRectElement>(".call-square-c"),
+    ];
+    const texts = [
+      figure.querySelector<SVGTextElement>(".call-text-a"),
+      figure.querySelector<SVGTextElement>(".call-text-b"),
+      figure.querySelector<SVGTextElement>(".call-text-c"),
+    ];
+
+    const rowLabels = figure.querySelectorAll(".row-label");
+    const colLabels = figure.querySelectorAll(".col-label");
+
+    let state = { row: featuredRow, col: featuredCol };
+
+    function layoutLines() {
+      // Left-align all lines: pick startX so the widest line is centered,
+      // then use the same startX for every line.
+      let maxWidth = 0;
+      texts.forEach((t) => {
+        if (t) maxWidth = Math.max(maxWidth, t.getBBox().width);
+      });
+      const total = swatchSize + swatchGap + maxWidth;
       const startX = (svgWidth - total) / 2;
-      const swatchX = startX;
-      const swatchY = textCenterY - swatchSize / 2;
-      swatch.setAttribute("x", String(swatchX));
-      swatch.setAttribute("y", String(swatchY));
-      const textX = startX + swatchSize + swatchGap;
-      text.setAttribute("x", String(textX));
-      text.setAttribute("y", String(textCenterY));
-      // re-anchor tspans on the text by clearing x on them implicitly
-      return {
-        swatchCenterX: swatchX + swatchSize / 2,
-        swatchCenterY: swatchY + swatchSize / 2,
-      };
+      texts.forEach((text, idx) => {
+        const swatch = swatches[idx];
+        if (!text || !swatch) return;
+        const sy = textY[idx] - swatchSize / 2;
+        swatch.setAttribute("x", String(startX));
+        swatch.setAttribute("y", String(sy));
+        text.setAttribute("x", String(startX + swatchSize + swatchGap));
+        text.setAttribute("y", String(textY[idx]));
+      });
     }
 
+    // mA highlight is a horizontal strip spanning all K blocktiles at row.
+    // mB highlight is a vertical strip spanning all K blocktiles at col.
+    // mC highlight is a single blocktile.
     function update(row: number, col: number) {
-      selected?.setAttribute("x", String(col * tileSize));
-      selected?.setAttribute("y", String(row * tileSize));
-      if (coords[0]) coords[0].textContent = String(row);
-      if (coords[1]) coords[1].textContent = String(col);
+      state = { row, col };
 
-      const tileCenterX = matrixX + col * tileSize + tileSize / 2;
-      const tileCenterY = matrixY + row * tileSize + tileSize / 2;
+      maHi?.setAttribute("y", String(row * aBlockH));
+      maHi?.setAttribute("x", "0");
+      maHi?.setAttribute("width", String(aBlockW * kBlocks));
+      maHi?.setAttribute("height", String(aBlockH));
 
-      const swatchPos = layout();
-      if (swatchPos && connector) {
-        connector.setAttribute("x1", String(tileCenterX));
-        connector.setAttribute("y1", String(tileCenterY));
-        connector.setAttribute("x2", String(swatchPos.swatchCenterX));
-        connector.setAttribute("y2", String(swatchPos.swatchCenterY));
-      }
+      mbHi?.setAttribute("x", String(col * bBlockW));
+      mbHi?.setAttribute("y", "0");
+      mbHi?.setAttribute("width", String(bBlockW));
+      mbHi?.setAttribute("height", String(bBlockH * kBlocks));
+
+      mcHi?.setAttribute("x", String(col * cBlockW));
+      mcHi?.setAttribute("y", String(row * cBlockH));
+
+      rowLabels.forEach((n) => (n.textContent = String(row)));
+      colLabels.forEach((n) => (n.textContent = String(col)));
+
+      layoutLines();
     }
 
     figure
-      .querySelectorAll<HTMLElement>("[data-tile-row][data-tile-col]")
+      .querySelectorAll<HTMLElement>(".mc-hitbox")
       .forEach((tile) => {
         tile.addEventListener("pointerenter", () => {
           update(
-            Number(tile.dataset.tileRow),
-            Number(tile.dataset.tileCol),
+            Number(tile.dataset.blockRow),
+            Number(tile.dataset.blockCol),
           );
         });
-        tile.addEventListener("focus", () => {
-          update(
-            Number(tile.dataset.tileRow),
-            Number(tile.dataset.tileCol),
-          );
+      });
+    figure
+      .querySelectorAll<HTMLElement>(".ma-hitbox")
+      .forEach((tile) => {
+        tile.addEventListener("pointerenter", () => {
+          update(Number(tile.dataset.blockRow), state.col);
+        });
+      });
+    figure
+      .querySelectorAll<HTMLElement>(".mb-hitbox")
+      .forEach((tile) => {
+        tile.addEventListener("pointerenter", () => {
+          update(state.row, Number(tile.dataset.blockCol));
         });
       });
 
@@ -198,11 +380,11 @@ const FEATURED_COL = 5;
 <style>
   .local-tile-viz {
     --viz-ink: color-mix(in oklab, var(--foreground) 80%, transparent);
-    --viz-grid: color-mix(in oklab, var(--foreground) 20%, transparent);
-    --viz-tile-grid: color-mix(in oklab, var(--foreground) 36%, transparent);
-    --viz-cell-grid: color-mix(in oklab, var(--foreground) 10%, transparent);
+    --viz-block-grid: color-mix(in oklab, var(--foreground) 36%, transparent);
     --viz-fill: color-mix(in oklab, var(--muted) 72%, transparent);
-    --viz-block: oklch(0.72 0.18 65);
+    --viz-a: oklch(0.72 0.18 65);
+    --viz-b: oklch(0.68 0.19 230);
+    --viz-c: oklch(0.62 0.20 145);
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -219,31 +401,31 @@ const FEATURED_COL = 5;
     fill: var(--viz-fill);
   }
 
-  .cell-grid {
-    fill: url("#local-tile-cell-grid");
-  }
-
-  .tile-grid {
-    fill: url("#local-tile-tile-grid");
+  .block-grid {
     pointer-events: none;
   }
-
-  #local-tile-cell-grid path {
-    fill: none;
-    stroke: var(--viz-cell-grid);
-    stroke-width: 0.4;
+  .block-grid-a {
+    fill: url("#ltv-a-block-grid");
+  }
+  .block-grid-b {
+    fill: url("#ltv-b-block-grid");
+  }
+  .block-grid-c {
+    fill: url("#ltv-c-block-grid");
   }
 
-  #local-tile-tile-grid path {
+  #ltv-a-block-grid path,
+  #ltv-b-block-grid path,
+  #ltv-c-block-grid path {
     fill: none;
-    stroke: var(--viz-tile-grid);
-    stroke-width: 0.9;
+    stroke: var(--viz-block-grid);
+    stroke-width: 0.7;
   }
 
   .matrix-border {
     fill: none;
     stroke: var(--viz-ink);
-    stroke-width: 2;
+    stroke-width: 1.5;
     pointer-events: none;
   }
 
@@ -253,12 +435,21 @@ const FEATURED_COL = 5;
     font-size: 11px;
     font-weight: 700;
     pointer-events: none;
+    paint-order: stroke;
+    stroke: var(--background);
+    stroke-width: 3px;
+    stroke-linejoin: round;
+  }
+
+  .comment {
+    fill: var(--muted-foreground);
+    white-space: pre;
   }
 
   .axis-label {
     fill: var(--muted-foreground);
     font-family: var(--font-mono);
-    font-size: 9px;
+    font-size: 10px;
     text-anchor: middle;
     pointer-events: none;
   }
@@ -269,25 +460,57 @@ const FEATURED_COL = 5;
     rotate: -90deg;
   }
 
-  .tile-hitbox {
+  .ma-hitbox,
+  .mb-hitbox,
+  .mc-hitbox {
     fill: transparent;
     cursor: crosshair;
   }
 
-  .tile-hitbox:hover {
+  .ma-hitbox:hover {
     fill: oklch(0.72 0.18 65 / 0.18);
   }
+  .mb-hitbox:hover {
+    fill: oklch(0.68 0.19 230 / 0.18);
+  }
+  .mc-hitbox:hover {
+    fill: oklch(0.62 0.20 145 / 0.18);
+  }
 
-  .tile-selected {
+  .ma-highlight {
     fill: oklch(0.72 0.18 65 / 0.32);
-    stroke: var(--viz-block);
-    stroke-width: 2;
+    stroke: var(--viz-a);
+    stroke-width: 1.5;
+    pointer-events: none;
+  }
+  .mb-highlight {
+    fill: oklch(0.68 0.19 230 / 0.32);
+    stroke: var(--viz-b);
+    stroke-width: 1.5;
+    pointer-events: none;
+  }
+  .mc-highlight {
+    fill: oklch(0.62 0.20 145 / 0.32);
+    stroke: var(--viz-c);
+    stroke-width: 1.5;
     pointer-events: none;
   }
 
-  .call-square {
+  .call-square-a {
     fill: oklch(0.72 0.18 65 / 0.32);
-    stroke: var(--viz-block);
+    stroke: var(--viz-a);
+    stroke-width: 1.5;
+    pointer-events: none;
+  }
+  .call-square-b {
+    fill: oklch(0.68 0.19 230 / 0.32);
+    stroke: var(--viz-b);
+    stroke-width: 1.5;
+    pointer-events: none;
+  }
+  .call-square-c {
+    fill: oklch(0.62 0.20 145 / 0.32);
+    stroke: var(--viz-c);
     stroke-width: 1.5;
     pointer-events: none;
   }
@@ -299,14 +522,17 @@ const FEATURED_COL = 5;
     pointer-events: none;
   }
 
-  .call-coord {
-    fill: var(--viz-block);
+  .call-text-a .row-label {
+    fill: var(--viz-a);
     font-weight: 700;
   }
-
-  .connector {
-    stroke: oklch(0.72 0.18 65 / 0.55);
-    stroke-width: 1;
-    pointer-events: none;
+  .call-text-b .col-label {
+    fill: var(--viz-b);
+    font-weight: 700;
+  }
+  .call-text-c .row-label,
+  .call-text-c .col-label {
+    fill: var(--viz-c);
+    font-weight: 700;
   }
 </style>

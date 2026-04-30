@@ -1,56 +1,86 @@
 ---
-const TENSOR_DIM = 64;
-const TILE_DIM = 8;
-const MATRIX_SIZE = 256;
-const TILE_COUNT = TENSOR_DIM / TILE_DIM;
-const TILE_SIZE = MATRIX_SIZE / TILE_COUNT;
-const CELL_SIZE = MATRIX_SIZE / TENSOR_DIM;
+const BM = 64;
+const BN = 64;
+const BK = 8;
+// A_thread_layout: (8, 8) row-major; B_thread_layout: (1, 64) row-major.
+const A_TL_ROWS = 8;
+const A_TL_COLS = 8;
+const B_TL_ROWS = 1;
+const B_TL_COLS = 64;
 
-const SVG_WIDTH = 500;
-const MATRIX_X = (SVG_WIDTH - MATRIX_SIZE) / 2;
-const MATRIX_Y = 24;
-const AXIS_BOTTOM_Y = MATRIX_Y + MATRIX_SIZE + 18;
-const TEXT_CENTER_Y = AXIS_BOTTOM_Y + 26;
-const SVG_HEIGHT = TEXT_CENTER_Y + 16;
+const CELL_SIZE = 4;
 
+const gA_W = BK * CELL_SIZE; // 32
+const gA_H = BM * CELL_SIZE; // 256
+const gB_W = BN * CELL_SIZE; // 256
+const gB_H = BK * CELL_SIZE; // 32
+
+// Tile dims in pixels
+const A_TILE_W = A_TL_COLS * CELL_SIZE; // 32
+const A_TILE_H = A_TL_ROWS * CELL_SIZE; // 32
+const B_TILE_W = B_TL_COLS * CELL_SIZE; // 256
+const B_TILE_H = B_TL_ROWS * CELL_SIZE; // 4
+
+// Number of tiles in each tensor
+const A_TILE_ROWS = BM / A_TL_ROWS; // 8
+const A_TILE_COLS = BK / A_TL_COLS; // 1
+const B_TILE_ROWS = BK / B_TL_ROWS; // 8
+const B_TILE_COLS = BN / B_TL_COLS; // 1
+
+const GAP = 24;
+const SVG_WIDTH = 540;
+const layoutWidth = gA_W + GAP + gB_W; // 32 + 24 + 256 = 312
+const gA_X = (SVG_WIDTH - layoutWidth) / 2;
+const gB_X = gA_X + gA_W + GAP;
+const TOP_Y = 28;
+const gA_Y = TOP_Y;
+// Vertically center gB on gA's center.
+const gB_Y = TOP_Y + (gA_H - gB_H) / 2;
+
+const matricesBottom = gA_Y + gA_H;
+const TEXT_BLOCK_TOP = matricesBottom + 36;
+const LINE_HEIGHT = 22;
 const SWATCH_SIZE = 12;
 const SWATCH_GAP = 8;
+const SVG_HEIGHT = TEXT_BLOCK_TOP + LINE_HEIGHT * 2 + 8;
 
-const cells = Array.from(
-  { length: TENSOR_DIM * TENSOR_DIM },
-  (_, index) => ({
-    row: Math.floor(index / TENSOR_DIM),
-    col: index % TENSOR_DIM,
-  }),
+// Default thread index (must be in [0, 64))
+const FEATURED_TID = 17;
+
+// Per-tile partition rectangles for gA and gB.
+const aTiles = Array.from({ length: A_TILE_ROWS }, (_, i) => i);
+const bTiles = Array.from({ length: B_TILE_ROWS }, (_, i) => i);
+
+// Hitbox cells over each tensor (one per cell of the tensor).
+const gACells = Array.from(
+  { length: BM * BK },
+  (_, i) => ({ row: Math.floor(i / BK), col: i % BK }),
 );
-
-const tilePositions = Array.from(
-  { length: TILE_COUNT * TILE_COUNT },
-  (_, i) => ({
-    tileRow: Math.floor(i / TILE_COUNT),
-    tileCol: i % TILE_COUNT,
-  }),
+const gBCells = Array.from(
+  { length: BK * BN },
+  (_, i) => ({ row: Math.floor(i / BN), col: i % BN }),
 );
-
-const FEATURED_INNER_ROW = 0;
-const FEATURED_INNER_COL = 0;
-const FEATURED_INDEX = FEATURED_INNER_COL * TILE_DIM + FEATURED_INNER_ROW;
 ---
 
 <figure
   class="local-partition-viz"
-  data-matrix-x={MATRIX_X}
-  data-matrix-y={MATRIX_Y}
   data-cell-size={CELL_SIZE}
-  data-tile-size={TILE_SIZE}
-  data-tile-dim={TILE_DIM}
+  data-a-tile-w={A_TILE_W}
+  data-a-tile-h={A_TILE_H}
+  data-b-tile-w={B_TILE_W}
+  data-b-tile-h={B_TILE_H}
+  data-a-tl-cols={A_TL_COLS}
+  data-b-tl-cols={B_TL_COLS}
+  data-ga-x={gA_X}
+  data-ga-y={gA_Y}
+  data-gb-x={gB_X}
+  data-gb-y={gB_Y}
+  data-text-line1-y={TEXT_BLOCK_TOP + LINE_HEIGHT * 0.5}
+  data-text-line2-y={TEXT_BLOCK_TOP + LINE_HEIGHT * 1.5}
   data-svg-width={SVG_WIDTH}
-  data-text-center-y={TEXT_CENTER_Y}
   data-swatch-size={SWATCH_SIZE}
   data-swatch-gap={SWATCH_GAP}
-  data-featured-inner-row={FEATURED_INNER_ROW}
-  data-featured-inner-col={FEATURED_INNER_COL}
-  data-featured-index={FEATURED_INDEX}
+  data-featured-tid={FEATURED_TID}
 >
   <svg
     class="local-partition-panel"
@@ -58,100 +88,135 @@ const FEATURED_INDEX = FEATURED_INNER_COL * TILE_DIM + FEATURED_INNER_ROW;
     height={SVG_HEIGHT}
     viewBox={`0 0 ${SVG_WIDTH} ${SVG_HEIGHT}`}
     role="img"
-    aria-label="local_partition visualization"
+    aria-label="local_partition visualization for the 2D blocktiling matmul"
     aria-describedby="local-partition-viz-desc"
   >
     <desc id="local-partition-viz-desc">
-      Hover a cell to highlight all cells at the same intra-tile position
-      across every tile — that set is the local_partition.
+      Hover a cell in gA or gB to set threadIdx.x. Each thread receives one
+      cell per tile — the highlighted cells are the elements that thread is
+      responsible for loading from gmem to smem.
     </desc>
 
     <defs>
       <pattern
-        id="local-partition-tile-grid"
-        width={TILE_SIZE}
-        height={TILE_SIZE}
-        patternUnits="userSpaceOnUse"
-      >
-        <path d={`M ${TILE_SIZE} 0 L 0 0 0 ${TILE_SIZE}`}></path>
-      </pattern>
-      <pattern
-        id="local-partition-cell-grid"
+        id="lpv-cell-grid"
         width={CELL_SIZE}
         height={CELL_SIZE}
         patternUnits="userSpaceOnUse"
       >
         <path d={`M ${CELL_SIZE} 0 L 0 0 0 ${CELL_SIZE}`}></path>
       </pattern>
+      <pattern
+        id="lpv-a-tile-grid"
+        width={A_TILE_W}
+        height={A_TILE_H}
+        patternUnits="userSpaceOnUse"
+      >
+        <path d={`M ${A_TILE_W} 0 L 0 0 0 ${A_TILE_H}`}></path>
+      </pattern>
+      <pattern
+        id="lpv-b-tile-grid"
+        width={B_TILE_W}
+        height={B_TILE_H}
+        patternUnits="userSpaceOnUse"
+      >
+        <path d={`M ${B_TILE_W} 0 L 0 0 0 ${B_TILE_H}`}></path>
+      </pattern>
     </defs>
 
-    <g class="matrix" transform={`translate(${MATRIX_X} ${MATRIX_Y})`}>
-      <rect class="matrix-fill" width={MATRIX_SIZE} height={MATRIX_SIZE}></rect>
-      <rect
-        class="cell-grid"
-        width={MATRIX_SIZE}
-        height={MATRIX_SIZE}></rect>
-      <g class="partition-highlights">
+    <!-- gA: tall (BM x BK), tiled by A_thread_layout (8, 8). -->
+    <g class="matrix ga" transform={`translate(${gA_X} ${gA_Y})`}>
+      <rect class="matrix-fill" width={gA_W} height={gA_H}></rect>
+      <rect class="cell-grid" width={gA_W} height={gA_H}></rect>
+      <g class="ga-partition">
         {
-          tilePositions.map((tile) => (
+          aTiles.map((tileRow) => (
             <rect
-              class="partition-cell"
-              data-tile-row={tile.tileRow}
-              data-tile-col={tile.tileCol}
-              x={tile.tileCol * TILE_SIZE + FEATURED_INNER_COL * CELL_SIZE}
-              y={tile.tileRow * TILE_SIZE + FEATURED_INNER_ROW * CELL_SIZE}
+              class="partition-cell partition-cell-a"
+              data-tile-row={tileRow}
+              x="0"
+              y={tileRow * A_TILE_H}
               width={CELL_SIZE}
               height={CELL_SIZE}
             />
           ))
         }
       </g>
-      <rect
-        class="tile-grid"
-        width={MATRIX_SIZE}
-        height={MATRIX_SIZE}></rect>
+      <rect class="tile-grid tile-grid-a" width={gA_W} height={gA_H}></rect>
       {
-        cells.map((cell) => (
+        gACells.map((c) => (
           <rect
-            class="cell-hitbox"
-            data-cell-row={cell.row}
-            data-cell-col={cell.col}
-            x={cell.col * CELL_SIZE}
-            y={cell.row * CELL_SIZE}
+            class="ga-hitbox"
+            data-cell-row={c.row}
+            data-cell-col={c.col}
+            x={c.col * CELL_SIZE}
+            y={c.row * CELL_SIZE}
             width={CELL_SIZE}
             height={CELL_SIZE}
           />
         ))
       }
-      <rect class="matrix-border" width={MATRIX_SIZE} height={MATRIX_SIZE}
-      ></rect>
-      <text class="matrix-label" x="7" y="14">tensor</text>
-      <text class="axis-label" x={MATRIX_SIZE / 2} y={MATRIX_SIZE + 18}
-        >64</text
-      >
-      <text class="axis-label vertical" x="-18" y={MATRIX_SIZE / 2}>64</text>
+      <rect class="matrix-border" width={gA_W} height={gA_H}></rect>
+      <text class="matrix-label" x="4" y="-8">gA</text>
+      <text class="axis-label" x={gA_W / 2} y={gA_H + 14}>BK = {BK}</text>
+      <text class="axis-label vertical" x="-22" y={gA_H / 2}>BM = {BM}</text>
     </g>
 
-    <g class="connectors">
+    <!-- gB: wide (BK x BN), tiled by B_thread_layout (1, 64). -->
+    <g class="matrix gb" transform={`translate(${gB_X} ${gB_Y})`}>
+      <rect class="matrix-fill" width={gB_W} height={gB_H}></rect>
+      <rect class="cell-grid" width={gB_W} height={gB_H}></rect>
+      <g class="gb-partition">
+        {
+          bTiles.map((tileRow) => (
+            <rect
+              class="partition-cell partition-cell-b"
+              data-tile-row={tileRow}
+              x="0"
+              y={tileRow * B_TILE_H}
+              width={CELL_SIZE}
+              height={CELL_SIZE}
+            />
+          ))
+        }
+      </g>
+      <rect class="tile-grid tile-grid-b" width={gB_W} height={gB_H}></rect>
       {
-        tilePositions.map((tile) => (
-          <line
-            class="connector"
-            data-tile-row={tile.tileRow}
-            data-tile-col={tile.tileCol}
+        gBCells.map((c) => (
+          <rect
+            class="gb-hitbox"
+            data-cell-row={c.row}
+            data-cell-col={c.col}
+            x={c.col * CELL_SIZE}
+            y={c.row * CELL_SIZE}
+            width={CELL_SIZE}
+            height={CELL_SIZE}
           />
         ))
       }
+      <rect class="matrix-border" width={gB_W} height={gB_H}></rect>
+      <text class="matrix-label" x="4" y="-8">gB</text>
+      <text class="axis-label vertical" x="-22" y={gB_H / 2}>BK = {BK}</text>
+      <text class="axis-label" x={gB_W / 2} y={gB_H + 14}>BN = {BN}</text>
     </g>
 
+    <!-- Code lines -->
     <rect
-      class="call-square"
+      class="call-square call-square-a"
       width={SWATCH_SIZE}
       height={SWATCH_SIZE}></rect>
-    <text class="call-text" dominant-baseline="middle">
-      <tspan> = local_partition(tensor, make_layout(8, 8), </tspan><tspan
-        class="call-coord">0</tspan
-      ><tspan>)</tspan>
+    <text class="call-text call-text-a" dominant-baseline="middle">
+      <tspan>gA_to_r = local_partition(gA, A_thread_layout (8, 8), threadIdx.x = </tspan
+      ><tspan class="tid-label">17</tspan><tspan>)</tspan>
+    </text>
+
+    <rect
+      class="call-square call-square-b"
+      width={SWATCH_SIZE}
+      height={SWATCH_SIZE}></rect>
+    <text class="call-text call-text-b" dominant-baseline="middle">
+      <tspan>gB_to_r = local_partition(gB, B_thread_layout (1, 64), threadIdx.x = </tspan
+      ><tspan class="tid-label">17</tspan><tspan>)</tspan>
     </text>
   </svg>
 </figure>
@@ -161,105 +226,118 @@ const FEATURED_INDEX = FEATURED_INNER_COL * TILE_DIM + FEATURED_INNER_ROW;
 
   figures.forEach((figure) => {
     const el = figure as HTMLElement;
-    const matrixX = Number(el.dataset.matrixX);
-    const matrixY = Number(el.dataset.matrixY);
     const cellSize = Number(el.dataset.cellSize);
-    const tileSize = Number(el.dataset.tileSize);
-    const tileDim = Number(el.dataset.tileDim);
+    const aTileH = Number(el.dataset.aTileH);
+    const bTileH = Number(el.dataset.bTileH);
+    const aTLCols = Number(el.dataset.aTlCols);
+    const bTLCols = Number(el.dataset.bTlCols);
+    const textY = [
+      Number(el.dataset.textLine1Y),
+      Number(el.dataset.textLine2Y),
+    ];
     const svgWidth = Number(el.dataset.svgWidth);
-    const textCenterY = Number(el.dataset.textCenterY);
     const swatchSize = Number(el.dataset.swatchSize);
     const swatchGap = Number(el.dataset.swatchGap);
-    const featuredInnerRow = Number(el.dataset.featuredInnerRow);
-    const featuredInnerCol = Number(el.dataset.featuredInnerCol);
+    const featuredTid = Number(el.dataset.featuredTid);
 
-    const partitionCells = figure.querySelectorAll<SVGRectElement>(
-      ".partition-cell",
+    const aPartitionCells = figure.querySelectorAll<SVGRectElement>(
+      ".partition-cell-a",
     );
-    const connectors = figure.querySelectorAll<SVGLineElement>(".connector");
-    const swatch = figure.querySelector<SVGRectElement>(".call-square");
-    const text = figure.querySelector<SVGTextElement>(".call-text");
-    const coord = figure.querySelector(".call-coord");
+    const bPartitionCells = figure.querySelectorAll<SVGRectElement>(
+      ".partition-cell-b",
+    );
 
-    function layout() {
+    const swatches = [
+      figure.querySelector<SVGRectElement>(".call-square-a"),
+      figure.querySelector<SVGRectElement>(".call-square-b"),
+    ];
+    const texts = [
+      figure.querySelector<SVGTextElement>(".call-text-a"),
+      figure.querySelector<SVGTextElement>(".call-text-b"),
+    ];
+    const tidLabels = figure.querySelectorAll(".tid-label");
+
+    function layoutLine(idx: number) {
+      const text = texts[idx];
+      const swatch = swatches[idx];
       if (!text || !swatch) return null;
       const bbox = text.getBBox();
       const total = swatchSize + swatchGap + bbox.width;
       const startX = (svgWidth - total) / 2;
-      const swatchX = startX;
-      const swatchY = textCenterY - swatchSize / 2;
-      swatch.setAttribute("x", String(swatchX));
-      swatch.setAttribute("y", String(swatchY));
-      const textX = startX + swatchSize + swatchGap;
-      text.setAttribute("x", String(textX));
-      text.setAttribute("y", String(textCenterY));
-      return {
-        swatchCenterX: swatchX + swatchSize / 2,
-        swatchCenterY: swatchY + swatchSize / 2,
-      };
+      const sx = startX;
+      const sy = textY[idx] - swatchSize / 2;
+      swatch.setAttribute("x", String(sx));
+      swatch.setAttribute("y", String(sy));
+      text.setAttribute("x", String(startX + swatchSize + swatchGap));
+      text.setAttribute("y", String(textY[idx]));
+      return { cx: sx + swatchSize / 2, cy: sy + swatchSize / 2 };
     }
 
-    function update(innerRow: number, innerCol: number) {
-      const index = innerCol * tileDim + innerRow;
-      partitionCells.forEach((cell) => {
+    function update(tid: number) {
+      // A_thread_layout (8, 8) row-major: tid -> (innerRow, innerCol)
+      const aInnerRow = Math.floor(tid / aTLCols);
+      const aInnerCol = tid % aTLCols;
+      // B_thread_layout (1, 64) row-major: tid -> (0, tid)
+      const bInnerRow = 0;
+      const bInnerCol = tid % bTLCols;
+
+      aPartitionCells.forEach((cell) => {
         const tileRow = Number(cell.dataset.tileRow);
-        const tileCol = Number(cell.dataset.tileCol);
-        cell.setAttribute(
-          "x",
-          String(tileCol * tileSize + innerCol * cellSize),
-        );
+        cell.setAttribute("x", String(aInnerCol * cellSize));
         cell.setAttribute(
           "y",
-          String(tileRow * tileSize + innerRow * cellSize),
+          String(tileRow * aTileH + aInnerRow * cellSize),
         );
       });
-      if (coord) coord.textContent = String(index);
-
-      const swatchPos = layout();
-      if (!swatchPos) return;
-
-      connectors.forEach((line) => {
-        const tileRow = Number(line.dataset.tileRow);
-        const tileCol = Number(line.dataset.tileCol);
-        const cx =
-          matrixX +
-          tileCol * tileSize +
-          innerCol * cellSize +
-          cellSize / 2;
-        const cy =
-          matrixY +
-          tileRow * tileSize +
-          innerRow * cellSize +
-          cellSize / 2;
-        line.setAttribute("x1", String(cx));
-        line.setAttribute("y1", String(cy));
-        line.setAttribute("x2", String(swatchPos.swatchCenterX));
-        line.setAttribute("y2", String(swatchPos.swatchCenterY));
+      bPartitionCells.forEach((cell) => {
+        const tileRow = Number(cell.dataset.tileRow);
+        cell.setAttribute("x", String(bInnerCol * cellSize));
+        cell.setAttribute(
+          "y",
+          String(tileRow * bTileH + bInnerRow * cellSize),
+        );
       });
+
+      tidLabels.forEach((n) => (n.textContent = String(tid)));
+
+      layoutLine(0);
+      layoutLine(1);
     }
 
     figure
-      .querySelectorAll<HTMLElement>("[data-cell-row][data-cell-col]")
+      .querySelectorAll<HTMLElement>(".ga-hitbox")
       .forEach((cell) => {
         cell.addEventListener("pointerenter", () => {
-          const cellRow = Number(cell.dataset.cellRow);
-          const cellCol = Number(cell.dataset.cellCol);
-          update(cellRow % tileDim, cellCol % tileDim);
+          const r = Number(cell.dataset.cellRow);
+          const c = Number(cell.dataset.cellCol);
+          // tid = (r % 8) * 8 + (c % 8), but BK=8 so c < 8 always.
+          const tid = (r % 8) * aTLCols + (c % aTLCols);
+          update(tid);
+        });
+      });
+    figure
+      .querySelectorAll<HTMLElement>(".gb-hitbox")
+      .forEach((cell) => {
+        cell.addEventListener("pointerenter", () => {
+          const c = Number(cell.dataset.cellCol);
+          // B_thread_layout (1, 64) row-major: tid = c % 64.
+          const tid = c % bTLCols;
+          update(tid);
         });
       });
 
-    update(featuredInnerRow, featuredInnerCol);
+    update(featuredTid);
   });
 </script>
 
 <style>
   .local-partition-viz {
     --viz-ink: color-mix(in oklab, var(--foreground) 80%, transparent);
-    --viz-grid: color-mix(in oklab, var(--foreground) 20%, transparent);
     --viz-tile-grid: color-mix(in oklab, var(--foreground) 36%, transparent);
     --viz-cell-grid: color-mix(in oklab, var(--foreground) 10%, transparent);
     --viz-fill: color-mix(in oklab, var(--muted) 72%, transparent);
-    --viz-block: oklch(0.72 0.18 65);
+    --viz-a: oklch(0.72 0.18 65);
+    --viz-b: oklch(0.68 0.19 230);
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -277,21 +355,27 @@ const FEATURED_INDEX = FEATURED_INNER_COL * TILE_DIM + FEATURED_INNER_ROW;
   }
 
   .cell-grid {
-    fill: url("#local-partition-cell-grid");
+    fill: url("#lpv-cell-grid");
   }
 
   .tile-grid {
-    fill: url("#local-partition-tile-grid");
     pointer-events: none;
   }
+  .tile-grid-a {
+    fill: url("#lpv-a-tile-grid");
+  }
+  .tile-grid-b {
+    fill: url("#lpv-b-tile-grid");
+  }
 
-  #local-partition-cell-grid path {
+  #lpv-cell-grid path {
     fill: none;
     stroke: var(--viz-cell-grid);
     stroke-width: 0.4;
   }
 
-  #local-partition-tile-grid path {
+  #lpv-a-tile-grid path,
+  #lpv-b-tile-grid path {
     fill: none;
     stroke: var(--viz-tile-grid);
     stroke-width: 0.9;
@@ -300,14 +384,14 @@ const FEATURED_INDEX = FEATURED_INNER_COL * TILE_DIM + FEATURED_INNER_ROW;
   .matrix-border {
     fill: none;
     stroke: var(--viz-ink);
-    stroke-width: 2;
+    stroke-width: 1.5;
     pointer-events: none;
   }
 
   .matrix-label {
     fill: var(--foreground);
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 700;
     pointer-events: none;
   }
@@ -315,7 +399,7 @@ const FEATURED_INDEX = FEATURED_INNER_COL * TILE_DIM + FEATURED_INNER_ROW;
   .axis-label {
     fill: var(--muted-foreground);
     font-family: var(--font-mono);
-    font-size: 9px;
+    font-size: 10px;
     text-anchor: middle;
     pointer-events: none;
   }
@@ -326,23 +410,36 @@ const FEATURED_INDEX = FEATURED_INNER_COL * TILE_DIM + FEATURED_INNER_ROW;
     rotate: -90deg;
   }
 
-  .cell-hitbox {
+  .ga-hitbox,
+  .gb-hitbox {
     fill: transparent;
     cursor: crosshair;
   }
 
   .partition-cell {
-    fill: oklch(0.72 0.18 65 / 0.55);
-    stroke: var(--viz-block);
-    stroke-width: 0.5;
     pointer-events: none;
+    stroke-width: 0.5;
+  }
+  .partition-cell-a {
+    fill: oklch(0.72 0.18 65 / 0.7);
+    stroke: var(--viz-a);
+  }
+  .partition-cell-b {
+    fill: oklch(0.68 0.19 230 / 0.7);
+    stroke: var(--viz-b);
   }
 
   .call-square {
-    fill: oklch(0.72 0.18 65 / 0.55);
-    stroke: var(--viz-block);
-    stroke-width: 1.5;
     pointer-events: none;
+    stroke-width: 1.5;
+  }
+  .call-square-a {
+    fill: oklch(0.72 0.18 65 / 0.7);
+    stroke: var(--viz-a);
+  }
+  .call-square-b {
+    fill: oklch(0.68 0.19 230 / 0.7);
+    stroke: var(--viz-b);
   }
 
   .call-text {
@@ -352,14 +449,12 @@ const FEATURED_INDEX = FEATURED_INNER_COL * TILE_DIM + FEATURED_INNER_ROW;
     pointer-events: none;
   }
 
-  .call-coord {
-    fill: var(--viz-block);
+  .call-text-a .tid-label {
+    fill: var(--viz-a);
     font-weight: 700;
   }
-
-  .connector {
-    stroke: oklch(0.72 0.18 65 / 0.18);
-    stroke-width: 0.6;
-    pointer-events: none;
+  .call-text-b .tid-label {
+    fill: var(--viz-b);
+    font-weight: 700;
   }
 </style>
