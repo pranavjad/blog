@@ -479,7 +479,6 @@ A few things to take note of in the CuTe snippet:
 
 - Tensors are indexed via `tensor(i)` rather than `tensor[i]` as you may be used to seeing.
 - Loop bounds are determined by the shape of tensors. For example, the outer loop `tile_idx` ranges from `0..shape<2>(gA)`. In this case `shape(gA) = (BM, BK, k)` where `k = K / BK` or the number of blocktiles along a row of A. Therefore `shape<2>(gA) = k` or the number of blocktiles. So the outer loop iterates through the blocktile index as we expect. Since `gA_to_r` is just a `local_partition` of `gA`, it also has 3 dimensions and we index into the last one to grab the correct blocktile. Simon's kernel achieves this by keeping pointers to the start of the right tile, and advancing the pointers throughout the loop.
-
 - Indexing is trivial since everything is handled by tensors and layouts we defined earlier. In the entire CuTe snippet you will not see a single indexing calculation. Let's zoom in on one loop:
 
 ```cpp
