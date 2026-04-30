@@ -17,9 +17,9 @@ const TILE_H = TM * CELL_SIZE; // 32
 const TILE_ROWS = TENSOR_DIM_M / TM; // 8
 const TILE_COLS = TENSOR_DIM_N / TN; // 8
 
-const GAP = 16;
+const GAP = 28;
 
-const SVG_WIDTH = 520;
+const SVG_WIDTH = 720;
 const layoutWidth = sA_W + GAP + gC_W;
 const sA_X = (SVG_WIDTH - layoutWidth) / 2;
 const sB_X = sA_X + sA_W + GAP;
@@ -87,12 +87,28 @@ const gCTiles = Array.from({ length: TILE_ROWS * TILE_COLS }, (_, i) => ({
         <path d={`M ${CELL_SIZE} 0 L 0 0 0 ${CELL_SIZE}`}></path>
       </pattern>
       <pattern
-        id="ttv-tile-grid-h"
+        id="ttv-tile-grid-gc"
         width={TILE_W}
         height={TILE_H}
         patternUnits="userSpaceOnUse"
       >
         <path d={`M ${TILE_W} 0 L 0 0 0 ${TILE_H}`}></path>
+      </pattern>
+      <pattern
+        id="ttv-tile-grid-sa"
+        width={CELL_SIZE}
+        height={TILE_H}
+        patternUnits="userSpaceOnUse"
+      >
+        <path d={`M ${CELL_SIZE} 0 L 0 0 0 ${TILE_H}`}></path>
+      </pattern>
+      <pattern
+        id="ttv-tile-grid-sb"
+        width={TILE_W}
+        height={CELL_SIZE}
+        patternUnits="userSpaceOnUse"
+      >
+        <path d={`M ${TILE_W} 0 L 0 0 0 ${CELL_SIZE}`}></path>
       </pattern>
     </defs>
 
@@ -119,7 +135,7 @@ const gCTiles = Array.from({ length: TILE_ROWS * TILE_COLS }, (_, i) => ({
           ))
         }
       </g>
-      <rect class="tile-grid" width={sA_W} height={sA_H}></rect>
+      <rect class="tile-grid tile-grid-sa" width={sA_W} height={sA_H}></rect>
       {
         sABands.map((row) => (
           <rect
@@ -133,7 +149,9 @@ const gCTiles = Array.from({ length: TILE_ROWS * TILE_COLS }, (_, i) => ({
         ))
       }
       <rect class="matrix-border" width={sA_W} height={sA_H}></rect>
-      <text class="matrix-label" x="5" y="12">sA</text>
+      <text class="matrix-label" x="6" y="15">sA</text>
+      <text class="axis-label" x={sA_W / 2} y={sA_H + 14}>BK = 8</text>
+      <text class="axis-label vertical" x="-22" y={sA_H / 2}>BM = 64</text>
     </g>
 
     <!-- sB: row on top, banded into 8 vertical bands of width TN -->
@@ -159,7 +177,7 @@ const gCTiles = Array.from({ length: TILE_ROWS * TILE_COLS }, (_, i) => ({
           ))
         }
       </g>
-      <rect class="tile-grid" width={sB_W} height={sB_H}></rect>
+      <rect class="tile-grid tile-grid-sb" width={sB_W} height={sB_H}></rect>
       {
         sBBands.map((col) => (
           <rect
@@ -173,7 +191,9 @@ const gCTiles = Array.from({ length: TILE_ROWS * TILE_COLS }, (_, i) => ({
         ))
       }
       <rect class="matrix-border" width={sB_W} height={sB_H}></rect>
-      <text class="matrix-label" x="5" y="12">sB</text>
+      <text class="matrix-label" x="6" y="15">sB</text>
+      <text class="axis-label" x={sB_W / 2} y={-12}>BN = 64</text>
+      <text class="axis-label vertical" x="-22" y={sB_H / 2}>BK = 8</text>
     </g>
 
     <!-- gC: 64x64 with 8x8 tiles -->
@@ -186,7 +206,7 @@ const gCTiles = Array.from({ length: TILE_ROWS * TILE_COLS }, (_, i) => ({
         height={TILE_H}
         x="0"
         y="0"></rect>
-      <rect class="tile-grid" width={gC_W} height={gC_H}></rect>
+      <rect class="tile-grid tile-grid-gc" width={gC_W} height={gC_H}></rect>
       {
         gCTiles.map((tile) => (
           <rect
@@ -201,44 +221,30 @@ const gCTiles = Array.from({ length: TILE_ROWS * TILE_COLS }, (_, i) => ({
         ))
       }
       <rect class="matrix-border" width={gC_W} height={gC_H}></rect>
-      <text class="matrix-label" x="5" y="12">gC</text>
+      <text class="matrix-label" x="6" y="15">gC</text>
     </g>
-
-    <!-- Connectors -->
-    <g class="connectors-sa">
-      {
-        Array.from({ length: TENSOR_DIM_K }, (_, i) => i).map((k) => (
-          <line class="connector connector-sa" data-slice={k} />
-        ))
-      }
-    </g>
-    <g class="connectors-sb">
-      {
-        Array.from({ length: TENSOR_DIM_K }, (_, i) => i).map((k) => (
-          <line class="connector connector-sb" data-slice={k} />
-        ))
-      }
-    </g>
-    <line class="connector connector-gc"></line>
 
     <!-- Code text lines -->
     <rect class="call-square call-square-sa" width={SWATCH_SIZE} height={SWATCH_SIZE}></rect>
     <text class="call-text call-text-sa" dominant-baseline="middle">
-      <tspan> = local_tile(sA, make_shape(8, 1), make_coord(</tspan
-      ><tspan class="row-label">2</tspan><tspan>, _))</tspan>
+      <tspan>sA_to_r = local_tile(sA, (TM=8, 1), make_coord(</tspan
+      ><tspan class="row-label">2</tspan><tspan>, _))  </tspan
+      ><tspan class="comment">// (TM, 1, BK) = (8, 1, 8)</tspan>
     </text>
 
     <rect class="call-square call-square-sb" width={SWATCH_SIZE} height={SWATCH_SIZE}></rect>
     <text class="call-text call-text-sb" dominant-baseline="middle">
-      <tspan> = local_tile(sB, make_shape(1, 8), make_coord(_, </tspan
-      ><tspan class="col-label">5</tspan><tspan>))</tspan>
+      <tspan>sB_to_r = local_tile(sB, (1, TN=8), make_coord(_, </tspan
+      ><tspan class="col-label">5</tspan><tspan>))  </tspan
+      ><tspan class="comment">// (1, TN, BK) = (1, 8, 8)</tspan>
     </text>
 
     <rect class="call-square call-square-gc" width={SWATCH_SIZE} height={SWATCH_SIZE}></rect>
     <text class="call-text call-text-gc" dominant-baseline="middle">
-      <tspan> = local_tile(gC, make_shape(8, 8), make_coord(</tspan
+      <tspan>gC_to_w = local_tile(gC, (TM=8, TN=8), make_coord(</tspan
       ><tspan class="row-label">2</tspan><tspan>, </tspan
-      ><tspan class="col-label">5</tspan><tspan>))</tspan>
+      ><tspan class="col-label">5</tspan><tspan>))  </tspan
+      ><tspan class="comment">// (TM, TN) = (8, 8)</tspan>
     </text>
   </svg>
 </figure>
@@ -250,14 +256,6 @@ const gCTiles = Array.from({ length: TILE_ROWS * TILE_COLS }, (_, i) => ({
     const el = figure as HTMLElement;
     const tileW = Number(el.dataset.tileW);
     const tileH = Number(el.dataset.tileH);
-    const saX = Number(el.dataset.saX);
-    const saY = Number(el.dataset.saY);
-    const saW = Number(el.dataset.saW);
-    const sbX = Number(el.dataset.sbX);
-    const sbY = Number(el.dataset.sbY);
-    const sbH = Number(el.dataset.sbH);
-    const gcX = Number(el.dataset.gcX);
-    const gcY = Number(el.dataset.gcY);
     const textY = [
       Number(el.dataset.textLine1Y),
       Number(el.dataset.textLine2Y),
@@ -285,34 +283,27 @@ const gCTiles = Array.from({ length: TILE_ROWS * TILE_COLS }, (_, i) => ({
       figure.querySelector<SVGTextElement>(".call-text-sb"),
       figure.querySelector<SVGTextElement>(".call-text-gc"),
     ];
-    const saConnectors = figure.querySelectorAll<SVGLineElement>(
-      ".connector-sa",
-    );
-    const sbConnectors = figure.querySelectorAll<SVGLineElement>(
-      ".connector-sb",
-    );
-    const gcConnector = figure.querySelector<SVGLineElement>(".connector-gc");
-    const cellSize = 4;
-
     const rowLabels = figure.querySelectorAll(".row-label");
     const colLabels = figure.querySelectorAll(".col-label");
 
     let state = { row: featuredRow, col: featuredCol };
 
-    function layoutLine(idx: number) {
-      const text = texts[idx];
-      const swatch = swatches[idx];
-      if (!text || !swatch) return null;
-      const bbox = text.getBBox();
-      const total = swatchSize + swatchGap + bbox.width;
+    function layoutLines() {
+      let maxWidth = 0;
+      texts.forEach((t) => {
+        if (t) maxWidth = Math.max(maxWidth, t.getBBox().width);
+      });
+      const total = swatchSize + swatchGap + maxWidth;
       const startX = (svgWidth - total) / 2;
-      const sx = startX;
-      const sy = textY[idx] - swatchSize / 2;
-      swatch.setAttribute("x", String(sx));
-      swatch.setAttribute("y", String(sy));
-      text.setAttribute("x", String(startX + swatchSize + swatchGap));
-      text.setAttribute("y", String(textY[idx]));
-      return { cx: sx + swatchSize / 2, cy: sy + swatchSize / 2 };
+      texts.forEach((text, idx) => {
+        const swatch = swatches[idx];
+        if (!text || !swatch) return;
+        const sy = textY[idx] - swatchSize / 2;
+        swatch.setAttribute("x", String(startX));
+        swatch.setAttribute("y", String(sy));
+        text.setAttribute("x", String(startX + swatchSize + swatchGap));
+        text.setAttribute("y", String(textY[idx]));
+      });
     }
 
     function update(row: number, col: number) {
@@ -334,40 +325,7 @@ const gCTiles = Array.from({ length: TILE_ROWS * TILE_COLS }, (_, i) => ({
       rowLabels.forEach((n) => (n.textContent = String(row)));
       colLabels.forEach((n) => (n.textContent = String(col)));
 
-      const saSwatch = layoutLine(0);
-      const sbSwatch = layoutLine(1);
-      const gcSwatch = layoutLine(2);
-
-      const saBandY = saY + row * tileH + tileH / 2;
-      saConnectors.forEach((line) => {
-        const k = Number(line.dataset.slice);
-        const cx = saX + k * cellSize + cellSize / 2;
-        if (!saSwatch) return;
-        line.setAttribute("x1", String(cx));
-        line.setAttribute("y1", String(saBandY));
-        line.setAttribute("x2", String(saSwatch.cx));
-        line.setAttribute("y2", String(saSwatch.cy));
-      });
-
-      const sbBandX = sbX + col * tileW + tileW / 2;
-      sbConnectors.forEach((line) => {
-        const k = Number(line.dataset.slice);
-        const cy = sbY + k * cellSize + cellSize / 2;
-        if (!sbSwatch) return;
-        line.setAttribute("x1", String(sbBandX));
-        line.setAttribute("y1", String(cy));
-        line.setAttribute("x2", String(sbSwatch.cx));
-        line.setAttribute("y2", String(sbSwatch.cy));
-      });
-
-      const gcCx = gcX + col * tileW + tileW / 2;
-      const gcCy = gcY + row * tileH + tileH / 2;
-      if (gcSwatch && gcConnector) {
-        gcConnector.setAttribute("x1", String(gcCx));
-        gcConnector.setAttribute("y1", String(gcCy));
-        gcConnector.setAttribute("x2", String(gcSwatch.cx));
-        gcConnector.setAttribute("y2", String(gcSwatch.cy));
-      }
+      layoutLines();
     }
 
     figure
@@ -425,12 +383,20 @@ const gCTiles = Array.from({ length: TILE_ROWS * TILE_COLS }, (_, i) => ({
   }
 
   .cell-grid {
-    fill: url("#ttv-cell-grid");
+    display: none;
   }
 
   .tile-grid {
-    fill: url("#ttv-tile-grid-h");
     pointer-events: none;
+  }
+  .tile-grid-sa {
+    fill: url("#ttv-tile-grid-sa");
+  }
+  .tile-grid-sb {
+    fill: url("#ttv-tile-grid-sb");
+  }
+  .tile-grid-gc {
+    fill: url("#ttv-tile-grid-gc");
   }
 
   #ttv-cell-grid path {
@@ -439,7 +405,9 @@ const gCTiles = Array.from({ length: TILE_ROWS * TILE_COLS }, (_, i) => ({
     stroke-width: 0.4;
   }
 
-  #ttv-tile-grid-h path {
+  #ttv-tile-grid-sa path,
+  #ttv-tile-grid-sb path,
+  #ttv-tile-grid-gc path {
     fill: none;
     stroke: var(--viz-tile-grid);
     stroke-width: 0.9;
@@ -458,6 +426,29 @@ const gCTiles = Array.from({ length: TILE_ROWS * TILE_COLS }, (_, i) => ({
     font-size: 11px;
     font-weight: 700;
     pointer-events: none;
+    paint-order: stroke;
+    stroke: var(--background);
+    stroke-width: 3px;
+    stroke-linejoin: round;
+  }
+
+  .comment {
+    fill: var(--muted-foreground);
+    white-space: pre;
+  }
+
+  .axis-label {
+    fill: var(--muted-foreground);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    text-anchor: middle;
+    pointer-events: none;
+  }
+
+  .vertical {
+    transform-box: fill-box;
+    transform-origin: center;
+    rotate: -90deg;
   }
 
   .sa-hitbox,
@@ -534,22 +525,6 @@ const gCTiles = Array.from({ length: TILE_ROWS * TILE_COLS }, (_, i) => ({
   .call-text-gc .col-label {
     fill: var(--viz-gc);
     font-weight: 700;
-  }
-
-  .connector {
-    pointer-events: none;
-  }
-  .connector-sa {
-    stroke: oklch(0.72 0.18 65 / 0.28);
-    stroke-width: 0.7;
-  }
-  .connector-sb {
-    stroke: oklch(0.68 0.19 230 / 0.28);
-    stroke-width: 0.7;
-  }
-  .connector-gc {
-    stroke: oklch(0.62 0.20 145 / 0.55);
-    stroke-width: 1;
   }
 
   .slice-line-sa {
