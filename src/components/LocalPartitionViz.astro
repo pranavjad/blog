@@ -8,7 +8,7 @@ const A_TL_COLS = 8;
 const B_TL_ROWS = 1;
 const B_TL_COLS = 64;
 
-const CELL_SIZE = 4;
+const CELL_SIZE = 6;
 
 const gA_W = BK * CELL_SIZE; // 32
 const gA_H = BM * CELL_SIZE; // 256
@@ -27,8 +27,8 @@ const A_TILE_COLS = BK / A_TL_COLS; // 1
 const B_TILE_ROWS = BK / B_TL_ROWS; // 8
 const B_TILE_COLS = BN / B_TL_COLS; // 1
 
-const GAP = 24;
-const SVG_WIDTH = 540;
+const GAP = 64;
+const SVG_WIDTH = 820;
 const layoutWidth = gA_W + GAP + gB_W; // 32 + 24 + 256 = 312
 const gA_X = (SVG_WIDTH - layoutWidth) / 2;
 const gB_X = gA_X + gA_W + GAP;
@@ -157,7 +157,7 @@ const gBCells = Array.from(
         ))
       }
       <rect class="matrix-border" width={gA_W} height={gA_H}></rect>
-      <text class="matrix-label" x="4" y="-8">gA</text>
+      <text class="matrix-label" x="6" y="15">gA</text>
       <text class="axis-label" x={gA_W / 2} y={gA_H + 14}>BK = {BK}</text>
       <text class="axis-label vertical" x="-22" y={gA_H / 2}>BM = {BM}</text>
     </g>
@@ -195,7 +195,7 @@ const gBCells = Array.from(
         ))
       }
       <rect class="matrix-border" width={gB_W} height={gB_H}></rect>
-      <text class="matrix-label" x="4" y="-8">gB</text>
+      <text class="matrix-label" x="6" y="15">gB</text>
       <text class="axis-label vertical" x="-22" y={gB_H / 2}>BK = {BK}</text>
       <text class="axis-label" x={gB_W / 2} y={gB_H + 14}>BN = {BN}</text>
     </g>
@@ -207,7 +207,8 @@ const gBCells = Array.from(
       height={SWATCH_SIZE}></rect>
     <text class="call-text call-text-a" dominant-baseline="middle">
       <tspan>gA_to_r = local_partition(gA, A_thread_layout (8, 8), threadIdx.x = </tspan
-      ><tspan class="tid-label">17</tspan><tspan>)</tspan>
+      ><tspan class="tid-label">17</tspan><tspan>)  </tspan
+      ><tspan class="comment">// shape: (8, 1, 8)</tspan>
     </text>
 
     <rect
@@ -216,7 +217,8 @@ const gBCells = Array.from(
       height={SWATCH_SIZE}></rect>
     <text class="call-text call-text-b" dominant-baseline="middle">
       <tspan>gB_to_r = local_partition(gB, B_thread_layout (1, 64), threadIdx.x = </tspan
-      ><tspan class="tid-label">17</tspan><tspan>)</tspan>
+      ><tspan class="tid-label">17</tspan><tspan>)  </tspan
+      ><tspan class="comment">// shape: (8, 1, 8)</tspan>
     </text>
   </svg>
 </figure>
@@ -257,20 +259,22 @@ const gBCells = Array.from(
     ];
     const tidLabels = figure.querySelectorAll(".tid-label");
 
-    function layoutLine(idx: number) {
-      const text = texts[idx];
-      const swatch = swatches[idx];
-      if (!text || !swatch) return null;
-      const bbox = text.getBBox();
-      const total = swatchSize + swatchGap + bbox.width;
+    function layoutLines() {
+      let maxWidth = 0;
+      texts.forEach((t) => {
+        if (t) maxWidth = Math.max(maxWidth, t.getBBox().width);
+      });
+      const total = swatchSize + swatchGap + maxWidth;
       const startX = (svgWidth - total) / 2;
-      const sx = startX;
-      const sy = textY[idx] - swatchSize / 2;
-      swatch.setAttribute("x", String(sx));
-      swatch.setAttribute("y", String(sy));
-      text.setAttribute("x", String(startX + swatchSize + swatchGap));
-      text.setAttribute("y", String(textY[idx]));
-      return { cx: sx + swatchSize / 2, cy: sy + swatchSize / 2 };
+      texts.forEach((text, idx) => {
+        const swatch = swatches[idx];
+        if (!text || !swatch) return;
+        const sy = textY[idx] - swatchSize / 2;
+        swatch.setAttribute("x", String(startX));
+        swatch.setAttribute("y", String(sy));
+        text.setAttribute("x", String(startX + swatchSize + swatchGap));
+        text.setAttribute("y", String(textY[idx]));
+      });
     }
 
     function update(tid: number) {
@@ -300,8 +304,7 @@ const gBCells = Array.from(
 
       tidLabels.forEach((n) => (n.textContent = String(tid)));
 
-      layoutLine(0);
-      layoutLine(1);
+      layoutLines();
     }
 
     figure
@@ -391,9 +394,18 @@ const gBCells = Array.from(
   .matrix-label {
     fill: var(--foreground);
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 700;
     pointer-events: none;
+    paint-order: stroke;
+    stroke: var(--background);
+    stroke-width: 3px;
+    stroke-linejoin: round;
+  }
+
+  .comment {
+    fill: var(--muted-foreground);
+    white-space: pre;
   }
 
   .axis-label {
