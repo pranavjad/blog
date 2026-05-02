@@ -166,7 +166,7 @@
     }
 
     > pre {
-      @apply my-0 p-4 font-mono text-xs;
+      @apply my-0 p-4 font-mono text-xs max-h-none!;
     }
 
     > .code-pair-highlighted {
