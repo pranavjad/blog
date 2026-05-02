@@ -13,7 +13,7 @@ import StepGroup from "../../components/StepGroup.astro";
 import Steps from "../../components/Steps.astro";
 import Step from "../../components/Step.astro";
 
-# Optimizing a MatMul with CuTe (Part 1)
+# Optimizing a MatMul with CuTe C++ (Part 1)
 
 If you like CUDA kernels, you may be aware of the [canonical blogpost](https://siboehm.com/articles/22/CUDA-MMM) by Simon Boehm in which he iteratively optimizes a matrix multiplication kernel. In this post, I implement these kernels using [CuTe](https://docs.nvidia.com/cutlass/latest/media/docs/cpp/cute/00_quickstart.html) which is a header only library with useful primitives for expressing tensor layouts and indexing.
 The CuTe docs are great, but I found myself struggling to understand the inner workings and design choices of CuTe until I implemented Simon's kernels in CuTe. I found that reproducing Simon's kernels down to the same access/computation pattern but using CuTe's idioms helped me deeply understand the framework, and this post is an attempt to distill and convey that.
