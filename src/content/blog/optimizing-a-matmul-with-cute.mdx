@@ -651,3 +651,7 @@ I'm releasing these blogposts as a multipart series. Next post I'll be diving in
 
 In this post we just scratched the surface. Even in the reference kernel, indexing patterns aren't too complex (it gets much worse with warp tiling) so CuTe might seem overkill.
 The main takeaway here is that CuTe gives us a powerful language to describe shapes, layouts, and access patterns along with an ergonomic set of utilities to extract a given thread's workload from that description. Fundamentally, that's all we need to write matmuls.
+
+The final kernel sources:
+- [CuTe](https://github.com/pranavjad/cuda-sgemm-optimization/blob/main/kernels/08_block_tiling_2d_cute.cu)
+- [Cuda](https://github.com/siboehm/SGEMM_CUDA/blob/master/src/kernels/5_kernel_2D_blocktiling.cuh)
