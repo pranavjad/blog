@@ -219,7 +219,7 @@ auto tensor = make_tensor(
 // index buffer[row, col]
 int data = tensor(row, col);
 ```
-This is a simple example but we will see with more complex indexing, having the Layout instead of calculating offsets manually is very nice.
+This is a simple example but we will see with more complex indexing that having the Layout instead of calculating offsets manually is very nice.
 
 Now, let's return to the CuTe snippet. Given the context on Tensors and Layouts, we can now understand this portion:
 
@@ -268,6 +268,7 @@ The `local_tile` signature looks something like this: `local_tile(tensor, shape,
 The function will divide the `tensor` into tiles of shape `shape` and let you yank out one of those tiles.
 Formally, `local_tile` results in some data shaped like this: `((tile_w, tile_h), (rest_w, rest_h))` and `coordinate` indexes into the second "rest" mode.
 
+*mouse over the visualization to see how different different coordinates index the tiling*
 <LocalTileViz />
 
 For C, we use `make_coord(blockIdx.y, blockIdx.x)` to grab the output blocktile this block should compute. For A/B we use `_` in the coordinate to grab all blocktiles along the K dimension, which will be reduced over to calculate the output blocktile.
@@ -275,13 +276,16 @@ This results in a 3D shape for A/B where the first 2 dimensions represent the sh
 
 Great, so we've achieved everything our reference kernel does so far. Let's see the next snippet from the reference kernel.
 
-1. Calculate each thread's share of the blocktile it should load from gmem to smem.
-2. Declare register memory for storing computation results, and for staging parts of the threadtiles for computation.
-
+<StepGroup>
+<Steps>
+  <Step n={1}>Calculate each thread's share of the blocktile it should load from gmem to smem.</Step>
+  <Step n={2}>Declare register memory for storing computation results, and for staging parts of the threadtiles for computation.</Step>
+</Steps>
 
 <CodePair>
   <Fragment slot="left">
     ```cpp
+    // <step n=1>
     // calculating the indices that this thread will load into SMEM
     const uint innerRowA = threadIdx.x / BK;
     const uint innerColA = threadIdx.x % BK;
@@ -294,16 +298,20 @@ Great, so we've achieved everything our reference kernel does so far. Let's see 
     // better GMEM coalescing (as opposed to spanning full row-width and iterating
     // across columns)
     const uint strideB = numThreadsBlocktile / BN;
+    // </step>
 
+    // <step n=2>
     // allocate thread-local cache for results in registerfile
     float threadResults[TM * TN] = {0.0};
     // register caches for As and Bs
     float regM[TM] = {0.0};
     float regN[TN] = {0.0};
+    // </step>
     ```
   </Fragment>
   <Fragment slot="right">
     ```cpp
+    // <step n=1>
     // part of gA each thread loads to sA
     Tensor gA_to_r = local_partition(gA, A_thread_layout, threadIdx.x);
     Tensor sA_to_w = local_partition(sA, A_thread_layout, threadIdx.x);
@@ -311,7 +319,9 @@ Great, so we've achieved everything our reference kernel does so far. Let's see 
     // part of gB each thread loads to sB
     Tensor gB_to_r = local_partition(gB, B_thread_layout, threadIdx.x);
     Tensor sB_to_w = local_partition(sB, B_thread_layout, threadIdx.x);
+    // </step>
 
+    // <step n=3>
     // part of sA, sB each thread reads for computation
     auto thread_row_C = threadIdx.x / (BN / TN);
     auto thread_col_C = threadIdx.x % (BN / TN);
@@ -321,26 +331,33 @@ Great, so we've achieved everything our reference kernel does so far. Let's see 
         sA, A_col_shape, make_coord(thread_row_C, _)); // (TM, 1, BK)
     Tensor sB_to_r = local_tile(
         sB, B_row_shape, make_coord(_, thread_col_C)); // (1, TN, BK)
+    // </step>
 
+    // <step n=4>
     // part of gC each thread writes results
     Tensor gC_to_w = local_tile(
         gC, shape(C_thread_layout),
         make_coord(thread_row_C, thread_col_C)); // (TM, TN)
+    // </step>
 
+    // <step n=2>
     // rmem
     Tensor thread_results = make_tensor_like(gC_to_w);
     clear(thread_results);
     Tensor tmp_A = make_tensor_like<float>(make_layout(make_shape(TM)));
     Tensor tmp_B = make_tensor_like<float>(make_layout(make_shape(TN)));
+    // </step>
     ```
   </Fragment>
 </CodePair>
 
 We achieve the 2 points above, but additionally we do the following up front, which Simon's kernel does implicitly later via indexing expressions:
 
-1. Calculate which parts of the smem blocktiles the thread needs to read in order to calculate its threadtile.
-2. Calculate which parts of global memory this thread should write it's results to.
-   In Simon's kernel we also do this, it just shows up as an indexing calculation later on in the hot loop, like `sA[calculation]`.
+<Steps start={3}>
+  <Step n={3}>Calculate which parts of the smem blocktiles the thread needs to read in order to calculate its threadtile.</Step>
+  <Step n={4}>Calculate which parts of global memory this thread should write it's results to. In Simon's kernel we also do this, it just shows up as an indexing calculation later on in the hot loop, like `sA[calculation]`.</Step>
+</Steps>
+</StepGroup>
 
 Let's take a closer look.
 
@@ -357,7 +374,7 @@ Tensor gB_to_r = local_partition(gB, B_thread_layout, threadIdx.x);
 Tensor sB_to_w = local_partition(sB, B_thread_layout, threadIdx.x);
 ```
 
-The `local_partition` function is similar to the `local_tile` function, but rather than letting you pick out a tile by coordinate, it lets you pick out an element of each tile. Formally, `local_partition(tensor, layout, index)` tiles `tensor` according to `shape(layout)` producing a tensor of shape `((tile_w, tile_h), (rest_w, rest_h))`. However instead of indexing into mode 1 which would be grabbing one tile, it indexes into mode 0. For example `local_partition(tensor, layout, 0)` grabs the first element from each tile giving you a tensor of shape `(rest_w, rest_h)`.
+The `local_partition` function is similar to the `local_tile` function, but rather than letting you pick out a tile by coordinate, it lets you pick out an element of each tile. Formally, `local_partition(tensor, layout, index)` tiles `tensor` according to `shape(layout)` producing a tensor of shape `((tile_w, tile_h), (rest_w, rest_h))`. However instead of indexing into mode 1 which would be grabbing a contiguous tile, it indexes into mode 0. For example `local_partition(tensor, layout, 0)` grabs the first element from each tile giving you a tensor of shape `(rest_w, rest_h)`.
 
 <LocalPartitionViz />
 
@@ -408,18 +425,24 @@ The `make_tensor_like` function declares a buffer in rmem and then makes a tenso
 Great, we have the entire preamble of our reference kernel implemented in CuTe. Now we can look at the interesting part, the hot loop.
 Here it is from our reference kernel. Conceptually this does:
 
-1. Load blocktile gmem -> smem.
-2. Load threadtile slices from A/B from smem -> rmem.
-3. Accumulate one outer product into `thread_results` in rmem.
-4. Repeat 2-3 BK times.
-5. Repeat 1-4 sliding blocktiles along K.
+<StepGroup>
+<Steps>
+  <Step n={1}>Load blocktile gmem -&gt; smem.</Step>
+  <Step n={2}>Load threadtile slices from A/B from smem -&gt; rmem.</Step>
+  <Step n={3}>Accumulate one outer product into `thread_results` in rmem.</Step>
+  <Step n={4}>Repeat 2-3 BK times.</Step>
+  <Step n={5}>Repeat 1-4 sliding blocktiles along K.</Step>
+</Steps>
 
 <CodePair>
   <Fragment slot="left">
     ```cpp
     // outer-most loop over block tiles
+    // <step n=5>
     for (uint bkIdx = 0; bkIdx < K; bkIdx += BK) {
+    // </step>
         // populate the SMEM caches
+        // <step n=1>
         for (uint loadOffset = 0; loadOffset < BM; loadOffset += strideA) {
             As[(innerRowA + loadOffset) * BK + innerColA] =
                 A[(innerRowA + loadOffset) * K + innerColA];
@@ -428,14 +451,20 @@ Here it is from our reference kernel. Conceptually this does:
             Bs[(innerRowB + loadOffset) * BN + innerColB] =
                 B[(innerRowB + loadOffset) * N + innerColB];
         }
+        // </step>
         __syncthreads();
 
+        // <step n=5>
         // advance blocktile
         A += BK;     // move BK columns to right
         B += BK * N; // move BK rows down
+        // </step>
 
         // calculate per-thread results
+        // <step n=4>
         for (uint dotIdx = 0; dotIdx < BK; ++dotIdx) {
+        // </step>
+            // <step n=2>
             // block into registers
             for (uint i = 0; i < TM; ++i) {
                 regM[i] = As[(threadRow * TM + i) * BK + dotIdx];
@@ -443,12 +472,15 @@ Here it is from our reference kernel. Conceptually this does:
             for (uint i = 0; i < TN; ++i) {
                 regN[i] = Bs[dotIdx * BN + threadCol * TN + i];
             }
+            // </step>
+            // <step n=3>
             for (uint resIdxM = 0; resIdxM < TM; ++resIdxM) {
                 for (uint resIdxN = 0; resIdxN < TN; ++resIdxN) {
                     threadResults[resIdxM * TN + resIdxN] +=
                     regM[resIdxM] * regN[resIdxN];
                 }
             }
+            // </step>
         }
         __syncthreads();
     }
@@ -456,9 +488,12 @@ Here it is from our reference kernel. Conceptually this does:
   </Fragment>
   <Fragment slot="right">
     ```cpp
+    // <step n=5>
     auto max_tile_idx = shape<2>(gA);
     for (int tile_idx = 0; tile_idx < max_tile_idx; tile_idx++) {
+    // </step>
         // load tiles
+        // <step n=1>
         Tensor gA_tile = gA_to_r(_, _, tile_idx);
         CUTE_UNROLL
         for (int i = 0; i < size(gA_tile); i++) {
@@ -469,12 +504,16 @@ Here it is from our reference kernel. Conceptually this does:
         for (int i = 0; i < size(gB_tile); i++) {
             sB_to_w(i) = gB_tile(i);
         }
+        // </step>
 
         __syncthreads();
 
         // compute partial results for this tile
+        // <step n=4>
         CUTE_UNROLL
         for (int dot_idx = 0; dot_idx < shape<2>(sA_to_r); dot_idx++) {
+        // </step>
+            // <step n=2>
             // load row/col from smem to rmem
             Tensor sA_col = sA_to_r(_, _, dot_idx);
             CUTE_UNROLL
@@ -486,7 +525,9 @@ Here it is from our reference kernel. Conceptually this does:
             for (int i = 0; i < size(tmp_B); i++) {
                 tmp_B(i) = sB_row(i);
             }
+            // </step>
 
+            // <step n=3>
             // outer product
             CUTE_UNROLL
             for (int i = 0; i < shape<0>(thread_results); i++) {
@@ -495,12 +536,14 @@ Here it is from our reference kernel. Conceptually this does:
                     thread_results(i, j) += tmp_A(i) * tmp_B(j);
                 }
             }
+            // </step>
         }
         __syncthreads();
     }
     ```
   </Fragment>
 </CodePair>
+</StepGroup>
 
 A few things to take note of in the CuTe snippet:
 

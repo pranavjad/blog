@@ -1,4 +1,8 @@
 ---
+interface Props {
+  start?: number;
+}
+const { start } = Astro.props;
 ---
 
-<ol class="step-list"><slot /></ol>
+<ol class="step-list" start={start}><slot /></ol>
