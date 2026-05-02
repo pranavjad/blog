@@ -587,7 +587,9 @@ for (uint i = 0; i < TM; ++i) {
 }
 ```
 
-The indexing expression has two parts
+But remember, the CuTe loop can be replaced by the `copy` macro. I've just unsugared it for clarity.
+
+The reference kernel's indexing expression has two parts:
 
 - `(threadRow * TM + i) * BK`: This selects the correct row from `sA` which increments with `i` since we are moving down a col of sA. In CuTe this is handled in the `local_tile` when tiling sA.
 - `+ dotIdx`: This selects the col we are copying. `sA_to_r` is of shape `(TM, 1, BK)`, so indexing into the last mode will select one thread col.
@@ -625,21 +627,21 @@ Now we arrive at the last snippet: storing the results back to gmem.
 </CodePair>
 
 Again, much nicer indexing courtesy of the up front work we did defining layouts.
-Instead of indexing directly into `C`, we index into the local tile of `C` that this thread got from the local_tile that produced `gC_to_w`. Recalling how `gC_to_w` was defined we can see how it is ultimately equivalent to the indexing expression from Simon's kernel.
+Instead of indexing directly into `C`, we index into the local tile of `C` that this thread got from the `local_tile` call that produced `gC_to_w`. Recalling how `gC_to_w` was defined we can see how it is ultimately equivalent to the indexing expression from Simon's kernel.
 
 ```cpp
 Tensor gC = local_tile(mC, C_blocktile, make_coord(blockIdx.y, blockIdx.x)); // (BM, BN)
 Tensor gC_to_w = local_tile(gC, shape(C_thread_layout), make_coord(thread_row_C, thread_col_C)); // (TM, TN)
 ```
 
-First we created `gC` which is the (BM, BN) blocktile from `C` that this block needs to handle. Within Simon's kernel this manifests as:
+First we created `gC` which has the (BM, BN) blocktiles from `C` that this block needs to handle. Within Simon's kernel this manifests as:
 `C += cRow * BM * N + cCol * BN;`
 
 Then within `gC` we further tile into the threadtiles, to finally extract this thread's portion of the blocktile. In Simon's kernel that manifests as:
 
 <pre><code>{"("}<span style={{color: "#c44e52"}}>threadRow * TM</span><span style={{color: "#55a868"}}> + resIdxM </span>{") * N + "}<span style={{color: "#c44e52"}}>threadCol * TN</span><span style={{color: "#55a868"}}> + resIdxN </span></code></pre>
 
-<span style={{color: "#c44e52"}}>These two multiplies</span> select this thread's portion of the blocktile, this is what local_tile does for us. Finally we loop over the threadtile with nice 2d indexing, which in Simon's kernel is handled by the <span style={{color: "#55a868"}}>two adds</span>.
+<span style={{color: "#c44e52"}}>These two multiplies</span> select this thread's portion of the blocktile, this is what `local_tile` does for us. Finally we loop over the threadtile with nice 2d indexing, which in Simon's kernel is handled by the <span style={{color: "#55a868"}}>two adds</span>.
 
 ## Conclusion (for now)
 
