@@ -154,10 +154,6 @@
     &[data-active-step] .line:not(.is-active-step) {
       opacity: 0.25;
     }
-
-    &[data-active-step] .line.is-active-step {
-      @apply bg-yellow-100;
-    }
   }
   .code-pair-panel {
     @apply my-0 min-w-0 px-4 first:pl-0 last:pr-0;
