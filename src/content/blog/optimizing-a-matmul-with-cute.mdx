@@ -1,5 +1,5 @@
 ---
-title: "Optimizing a MatMul with CuTe (Part 1)"
+title: "Optimizing a MatMul with CuTe C++ (Part 1)"
 description: "Implementing CUDA SGEMM optimizations with NVIDIA CuTe layouts and tensors."
 date: "2026-04-26"
 ---
@@ -12,7 +12,8 @@ import CodePair from "../../components/CodePair.astro";
 
 # Optimizing a MatMul with CuTe (Part 1)
 
-If you like CUDA kernels, you may be aware of the [canonical blogpost](https://siboehm.com/articles/22/CUDA-MMM) by Simon Boehm in which he iteratively optimizes a matrix multiplication kernel. In this post, I implement these kernels using [CuTe](https://docs.nvidia.com/cutlass/latest/media/docs/cpp/cute/00_quickstart.html) which is a header only library with useful primitives for expressing tensor layouts and indexing. The CuTe docs are great, but I found myself struggling to understand the inner workings and design choices of CuTe until I implemented Simon's kernels in CuTe. I found that forcing myself to implement Simon's kernels down to the same access/computation pattern but using CuTe's idioms helped me deeply understand the framework, and this post is an attempt to distill and convey that.
+If you like CUDA kernels, you may be aware of the [canonical blogpost](https://siboehm.com/articles/22/CUDA-MMM) by Simon Boehm in which he iteratively optimizes a matrix multiplication kernel. In this post, I implement these kernels using [CuTe](https://docs.nvidia.com/cutlass/latest/media/docs/cpp/cute/00_quickstart.html) which is a header only library with useful primitives for expressing tensor layouts and indexing.
+The CuTe docs are great, but I found myself struggling to understand the inner workings and design choices of CuTe until I implemented Simon's kernels in CuTe. I found that reproducing Simon's kernels down to the same access/computation pattern but using CuTe's idioms helped me deeply understand the framework, and this post is an attempt to distill and convey that.
 
 My goal with this article is not to explain the matmuls themselves, Simon's article already does a great job at that and this post assumes the reader is familiar.
 Rather, I will go through a few of the most important optimizations and how they would be implemented using CuTe which is sufficient to showcase the framework and learn its core concepts.
@@ -32,18 +33,25 @@ The result is:
 - C = alpha * (A @ B) + beta * C
 - C is shaped (M, N), alpha and beta are constants
 
+
 ### 2D Blocktiling
 
-The 2D blocktiling kernel can be summarized as follows.
+It's worth a quick review of the kernel we are trying to implement with CuTe. The 2D blocktiling kernel can be summarized as follows.
 
-Computation pattern
+**Computation pattern**
 
 | Unit of parallelism | Responsibility                                                                                                                                                                                                                        |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | block               | Calculates a (BM, BN) blocktile of C using a (BM, BK) blocktile from A and a (BK, BN) blocktile from B                                                                                                                                |
 | thread              | Calculates a (TM, TN) threadtile of the C blocktile via a matmul of (TM, BK) @ (BK, TN) threadtiles from A and B respectively. The matmul is done via summing outer product of (TM, 1) slices from A and (1, TN) slices from B |
 
-Memory access pattern
+
+For our purposes we can problem dimensions and tile dimensions concrete.
+- `M = N = K = 4096` (though in figures this may be reduced)
+- `BM = BN = 64, BK = 8`
+- `TM = TN = 8`
+
+**Memory access pattern**
 
 | Unit of parallelism | Responsibility                                                                                    |
 | ------------------- | ------------------------------------------------------------------------------------------------- |
