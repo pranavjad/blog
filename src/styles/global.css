@@ -137,7 +137,7 @@
     @apply bg-yellow-200;
   }
   .code-pair {
-    @apply my-6 mb-10 grid lg:-mx-24 xl:-mx-72 2xl:-mx-96 lg:grid-cols-2 divide-x divide-border;
+    @apply my-6 mb-10 grid lg:-mx-24 xl:-mx-72 2xl:-mx-96 lg:grid-cols-2 lg:divide-x divide-border;
   }
   .step-group {
     .step-list {
@@ -159,7 +159,7 @@
     }
   }
   .code-pair-panel {
-    @apply my-0 min-w-0 px-4 first:pl-0 last:pr-0;
+    @apply my-0 min-w-0 lg:px-4 lg:first:pl-0 lg:last:pr-0;
 
     > figcaption {
       @apply text-muted-foreground mb-2 font-mono text-xs font-medium tracking-wide uppercase;
