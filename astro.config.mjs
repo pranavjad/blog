@@ -5,6 +5,7 @@ import sitemap from "@astrojs/sitemap";
 import { defineConfig, fontProviders } from "astro/config";
 import tailwindcss from "@tailwindcss/vite";
 import { SITE_URL } from "./src/consts";
+import { stepTransformer } from "./src/lib/shiki-step-transformer.mjs";
 
 // https://astro.build/config
 export default defineConfig({
@@ -36,6 +37,7 @@ export default defineConfig({
   markdown: {
     shikiConfig: {
       theme: "catppuccin-latte",
+      transformers: [stepTransformer()],
     },
   },
 });

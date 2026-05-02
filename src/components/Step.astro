@@ -1,0 +1,8 @@
+---
+interface Props {
+  n: number | string;
+}
+const { n } = Astro.props;
+---
+
+<li data-step-trigger={String(n)}><slot /></li>

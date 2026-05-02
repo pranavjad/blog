@@ -9,6 +9,9 @@ import LocalTileViz from "../../components/LocalTileViz.astro";
 import LocalPartitionViz from "../../components/LocalPartitionViz.astro";
 import ThreadTileViz from "../../components/ThreadTileViz.astro";
 import CodePair from "../../components/CodePair.astro";
+import StepGroup from "../../components/StepGroup.astro";
+import Steps from "../../components/Steps.astro";
+import Step from "../../components/Step.astro";
 
 # Optimizing a MatMul with CuTe (Part 1)
 
@@ -74,10 +77,13 @@ The following visualization shows the hierarchy and access patterns of this matm
 Now, let's implement it using CuTe! I will build up the implementation snippet by snippet with Simon's reference kernel on the left, and the CuTe version on the right.
 
 First, the reference kernel
-1. Defines some bookkeeping variables used for indexing calculations later.
-2. Allocates shared memory to load the blocktiles into.
-3. Calculates which blocktile this block handles.
 
+<StepGroup>
+<Steps>
+  <Step n={1}>Defines some bookkeeping variables used for indexing calculations later.</Step>
+  <Step n={2}>Allocates shared memory to load the blocktiles into.</Step>
+  <Step n={3}>Calculates which blocktile this block handles.</Step>
+</Steps>
 
 <CodePair>
   <Fragment slot="left">
@@ -86,6 +92,7 @@ First, the reference kernel
       int M, int N, int K,
       float alpha, const float *A, const float *B, float beta, float *C
     ) {
+      // <step n=1>
       const uint cRow = blockIdx.y;
       const uint cCol = blockIdx.x;
 
@@ -99,15 +106,20 @@ First, the reference kernel
       // BN/TN are the number of threads to span a column
       const int threadCol = threadIdx.x % (BN / TN);
       const int threadRow = threadIdx.x / (BN / TN);
+      // </step>
 
+      // <step n=2>
       // allocate space for the current blocktile in smem
       __shared__ float As[BM * BK];
       __shared__ float Bs[BK * BN];
+      // </step>
 
+      // <step n=3>
       // Move blocktile to beginning of A's row and B's column
       A += cRow * BM * K;
       B += cCol * BN;
       C += cRow * BM * N + cCol * BN;
+      // </step>
     ```
   </Fragment>
   <Fragment slot="right">
@@ -118,6 +130,7 @@ First, the reference kernel
     ) {
         using namespace cute;
 
+        // <step n=1>
         // create Tensors from data + Layout
         auto A_gmem_layout = make_layout(make_shape(M, K), LayoutRight{});
         auto B_gmem_layout = make_layout(make_shape(K, N), LayoutRight{});
@@ -125,7 +138,9 @@ First, the reference kernel
         Tensor mA = make_tensor(make_gmem_ptr(A), A_gmem_layout);
         Tensor mB = make_tensor(make_gmem_ptr(B), B_gmem_layout);
         Tensor mC = make_tensor(make_gmem_ptr(C), C_gmem_layout);
+        // </step>
 
+        // <step n=3>
         // blocktiles in gmem
         auto A_blocktile = make_shape(BM, BK);
         auto B_blocktile = make_shape(BK, BN);
@@ -133,7 +148,9 @@ First, the reference kernel
         Tensor gA = local_tile(mA, A_blocktile, make_coord(blockIdx.y, _)); // (BM, BK, k)
         Tensor gB = local_tile(mB, B_blocktile, make_coord(_, blockIdx.x)); // (BK, BN, k)
         Tensor gC = local_tile(mC, C_blocktile, make_coord(blockIdx.y, blockIdx.x)); // (BM, BN)
+        // </step>
 
+        // <step n=2>
         // blocktiles in smem
         auto A_smem_layout = make_layout(A_blocktile, LayoutRight{});
         auto B_smem_layout = make_layout(B_blocktile, LayoutRight{});
@@ -141,9 +158,11 @@ First, the reference kernel
         __shared__ float B_smem[cosize_v<decltype(B_smem_layout)>];
         Tensor sA = make_tensor(make_smem_ptr(A_smem), A_smem_layout);
         Tensor sB = make_tensor(make_smem_ptr(B_smem), B_smem_layout);
+        // </step>
     ```
   </Fragment>
 </CodePair>
+</StepGroup>
 
 A few things to note about the CuTe version:
 

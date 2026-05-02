@@ -1,0 +1,39 @@
+---
+---
+
+<div class="step-group" data-step-scope><slot /></div>
+
+<script>
+  function wireScope(scope: HTMLElement) {
+    const triggers = scope.querySelectorAll<HTMLElement>("[data-step-trigger]");
+    if (triggers.length === 0) return;
+
+    const setActive = (n: string | null) => {
+      const prev = scope.querySelectorAll(".is-active-step");
+      prev.forEach((el) => el.classList.remove("is-active-step"));
+
+      if (n == null) {
+        scope.removeAttribute("data-active-step");
+        return;
+      }
+      scope.setAttribute("data-active-step", n);
+      const matches = scope.querySelectorAll(
+        `[data-step="${n}"], [data-step-trigger="${n}"]`,
+      );
+      matches.forEach((el) => el.classList.add("is-active-step"));
+    };
+
+    triggers.forEach((t) => {
+      const n = t.getAttribute("data-step-trigger");
+      if (!n) return;
+      t.addEventListener("mouseenter", () => setActive(n));
+      t.addEventListener("focusin", () => setActive(n));
+      t.addEventListener("mouseleave", () => setActive(null));
+      t.addEventListener("focusout", () => setActive(null));
+    });
+  }
+
+  document
+    .querySelectorAll<HTMLElement>("[data-step-scope]")
+    .forEach(wireScope);
+</script>

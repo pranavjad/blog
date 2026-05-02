@@ -136,6 +136,29 @@
   .code-pair {
     @apply my-6 mb-10 grid lg:-mx-24 xl:-mx-72 2xl:-mx-96 lg:grid-cols-2 divide-x divide-border;
   }
+  .step-group {
+    .step-list {
+      @apply list-decimal pl-6;
+
+      > li {
+        @apply transition-opacity duration-150;
+        cursor: default;
+      }
+    }
+
+    .line {
+      @apply transition-opacity duration-150;
+    }
+
+    &[data-active-step] .step-list > li:not(.is-active-step),
+    &[data-active-step] .line:not(.is-active-step) {
+      opacity: 0.25;
+    }
+
+    &[data-active-step] .line.is-active-step {
+      @apply bg-yellow-100;
+    }
+  }
   .code-pair-panel {
     @apply my-0 min-w-0 px-4 first:pl-0 last:pr-0;
 
