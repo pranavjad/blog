@@ -39,8 +39,20 @@ const SVG_HEIGHT = TEXT_BLOCK_TOP + LINE_HEIGHT * 3 + 8;
 const FEATURED_ROW = 2;
 const FEATURED_COL = 5;
 
-const sABands = Array.from({ length: TILE_ROWS }, (_, i) => i);
-const sBBands = Array.from({ length: TILE_COLS }, (_, i) => i);
+const sASlices = Array.from(
+  { length: TILE_ROWS * TENSOR_DIM_K },
+  (_, i) => ({
+    row: Math.floor(i / TENSOR_DIM_K),
+    k: i % TENSOR_DIM_K,
+  }),
+);
+const sBSlices = Array.from(
+  { length: TILE_COLS * TENSOR_DIM_K },
+  (_, i) => ({
+    col: Math.floor(i / TENSOR_DIM_K),
+    k: i % TENSOR_DIM_K,
+  }),
+);
 const gCTiles = Array.from({ length: TILE_ROWS * TILE_COLS }, (_, i) => ({
   row: Math.floor(i / TILE_COLS),
   col: i % TILE_COLS,
@@ -137,13 +149,13 @@ const gCTiles = Array.from({ length: TILE_ROWS * TILE_COLS }, (_, i) => ({
       </g>
       <rect class="tile-grid tile-grid-sa" width={sA_W} height={sA_H}></rect>
       {
-        sABands.map((row) => (
+        sASlices.map(({ row, k }) => (
           <rect
             class="sa-hitbox"
             data-band-row={row}
-            x="0"
+            x={k * CELL_SIZE}
             y={row * TILE_H}
-            width={sA_W}
+            width={CELL_SIZE}
             height={TILE_H}
           />
         ))
@@ -179,14 +191,14 @@ const gCTiles = Array.from({ length: TILE_ROWS * TILE_COLS }, (_, i) => ({
       </g>
       <rect class="tile-grid tile-grid-sb" width={sB_W} height={sB_H}></rect>
       {
-        sBBands.map((col) => (
+        sBSlices.map(({ col, k }) => (
           <rect
             class="sb-hitbox"
             data-band-col={col}
             x={col * TILE_W}
-            y="0"
+            y={k * CELL_SIZE}
             width={TILE_W}
-            height={sB_H}
+            height={CELL_SIZE}
           />
         ))
       }
@@ -459,13 +471,13 @@ const gCTiles = Array.from({ length: TILE_ROWS * TILE_COLS }, (_, i) => ({
   }
 
   .sa-hitbox:hover {
-    fill: oklch(0.72 0.18 65 / 0.12);
+    fill: oklch(0.72 0.18 65 / 0.18);
   }
   .sb-hitbox:hover {
-    fill: oklch(0.68 0.19 230 / 0.12);
+    fill: oklch(0.68 0.19 230 / 0.18);
   }
   .gc-hitbox:hover {
-    fill: oklch(0.62 0.20 145 / 0.12);
+    fill: oklch(0.62 0.20 145 / 0.18);
   }
 
   .sa-highlight {
